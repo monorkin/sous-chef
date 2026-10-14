@@ -23,7 +23,7 @@ const SECONDS_A_SWITCH_ANSWERS_FOR: u64 = 300;
 
 static ROTATING: AtomicBool = AtomicBool::new(false);
 
-/// ax's auto-switch for as long as Anna runs, winding down before each
+/// ax's auto-switch for as long as sous-chef runs, winding down before each
 /// switch. Only what changes is logged: a switch, or a check that failed.
 pub fn rotate(runtime: &Arc<Runtime>) {
     ROTATING.store(true, Ordering::Relaxed);

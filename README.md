@@ -1,17 +1,19 @@
-# ANNA
+# SOUS-CHEF
+
+sous-chef is a harness for a self-governing, token-efficent agent that you
+can work with through Basecamp, HEY & Fizzy like she was your human colege.
+The agent is called Anna unless you name it something else (the `name`
+setting).
 
 > Jag känner en bot, hon heter Anna, Anna heter hon<br>
 > — Basshunter, Botten Anna
-
-Anna is a self-governing, token-efficent, agent and harness that you can
-work with through Basecamp, HEY & Fizzy like she was your human colege.
 
 She uses your regular Claude Code subscription, runs everything in
 sandboxes, can auto-switch between multiple Claude subscriptions,
 and learns and improves over time while also being token efficient.
 
 > [!WARNING]
-> Anna is experimental. This is just an idea I'm playing around with.
+> sous-chef is experimental. This is just an idea I'm playing around with.
 > Consider all of this a giant Rube Goldberg machine that's actively
 > being tweaked.
 
@@ -20,23 +22,23 @@ and learns and improves over time while also being token efficient.
 Before you start, you'll have to have Claude Code installed and at least 
 one active subscription for it.
 
-The easiest way to install Anna is through [mise](https://mise.jdx.dev):
+The easiest way to install sous-chef is through [mise](https://mise.jdx.dev):
 
 ```bash
-mise use -g github:monorkin/anna
+mise use -g github:monorkin/sous-chef
 ```
 
 mise hides releases younger than 24 hours by default (`minimum_release_age`).
 If the latest release is fresher than that, pin the version instead:
 
 ```bash
-mise use -g github:monorkin/anna@v0.1.0
+mise use -g github:monorkin/sous-chef@v0.1.0
 ```
 
 On [Omarchy](https://omarchy.org):
 
 ```bash
-omarchy-mise-install github:monorkin/anna anna
+omarchy-mise-install github:monorkin/sous-chef sous-chef
 ```
 
 Her hands run in [bubblewrap](https://github.com/containers/bubblewrap) and
@@ -47,14 +49,19 @@ tools, her hands build Rust through it, with a cache of her own.
 Once installed, start the setup process. It will guide you through everything:
 
 ```bash
-anna setup
+sous-chef setup
 ```
+
+This project used to be called anna. If you installed it with
+`github:monorkin/anna`, reinstall it with `mise use -g github:monorkin/sous-chef`.
+Stop the old one first (`anna stop`); the first time sous-chef starts it
+moves your folders, Claude sessions, keyring token and service over.
 
 ## Upgrading
 
 ```bash
-anna upgrade           # to the latest release
-anna upgrade 0.2.0     # or to a specific one
+sous-chef upgrade           # to the latest release
+sous-chef upgrade 0.2.0     # or to a specific one
 ```
 
 This moves the mise install forward and points her service at the new
@@ -62,54 +69,54 @@ binary. She keeps running the old one until you restart her, so pick a
 moment when her hands aren't in the middle of something:
 
 ```bash
-anna restart
+sous-chef restart
 ```
 
 ## Usage
 
 ```bash
 # Running
-anna start                                # bring her up in the background (through systemd, if setup installed the service)
-anna stop                                 # stop her and everything she started
-anna restart                              # stop and start; she picks up whatever she was in the middle of
-anna status
-anna poke basecamp                        # check a source now instead of at the next tick; hook this to webhooks, mail filters, cron
-anna run                                  # or run her in this terminal until ctrl+c
-anna chat "the deploy is red, have a look" # or talk to her from this terminal
-anna chat --conversation billing "..."    # each conversation is its own thread
-anna log -f                               # watch what she's doing
+sous-chef start                                # bring her up in the background (through systemd, if setup installed the service)
+sous-chef stop                                 # stop her and everything she started
+sous-chef restart                              # stop and start; she picks up whatever she was in the middle of
+sous-chef status
+sous-chef poke basecamp                        # check a source now instead of at the next tick; hook this to webhooks, mail filters, cron
+sous-chef run                                  # or run her in this terminal until ctrl+c
+sous-chef chat "the deploy is red, have a look" # or talk to her from this terminal
+sous-chef chat --conversation billing "..."    # each conversation is its own thread
+sous-chef log -f                               # watch what she's doing
 
 # Backups
-anna backup                               # everything that makes her her, in one zip; safe while she runs
-anna backup --to ~/anna.zip --without-secrets
-anna restore ~/anna.zip                   # she has to be stopped; --force replaces an Anna already set up here
+sous-chef backup                               # everything that makes her her, in one zip; safe while she runs
+sous-chef backup --to ~/sous-chef.zip --without-secrets
+sous-chef restore ~/sous-chef.zip              # she has to be stopped; --force replaces an agent already set up here
 
 # MCP servers: how she acts, and where she listens
-anna mcp add basecamp -- basecamp mcp     # also accepts a server's changed tools
-anna mcp list
-anna mcp prose basecamp create_comment content   # this argument is prose for people: restyle it
-anna mcp remove basecamp
-anna source check basecamp                # read a source once and show what she'd make of it, without acting
+sous-chef mcp add basecamp -- basecamp mcp     # also accepts a server's changed tools
+sous-chef mcp list
+sous-chef mcp prose basecamp create_comment content   # this argument is prose for people: restyle it
+sous-chef mcp remove basecamp
+sous-chef source check basecamp                # read a source once and show what she'd make of it, without acting
 
 # Subscription management
-anna claude account add # add the current Claude Code account to the rotation
-anna claude account remove email@example.com
-anna claude account list
+sous-chef claude account add # add the current Claude Code account to the rotation
+sous-chef claude account remove email@example.com
+sous-chef claude account list
 
 # Memory
-anna memory list
-anna memory archive [memory-id]
+sous-chef memory list
+sous-chef memory archive [memory-id]
 
 # Logs
-anna log [-f] [--tail]
+sous-chef log [-f] [--tail]
 ```
 
 ## Architecture
 
-Anna is built around the brain and hands principle. In short, this means
+sous-chef is built around the brain and hands principle. In short, this means
 that there is a "brain" that accomplishes tasks using its "hands".
 
-Anna's brain consists of a dispatcher and multiple threads, 
+The agent's brain consists of a dispatcher and multiple threads, 
 each with its own reviewer.
 
 Each hand is a sandboxed instance of Claude Code that can only talk to its brain. It has
@@ -170,8 +177,8 @@ broker.
 
 ```bash
 mise trust && mise install         # rust, mr-boxington, cross, and gh, from mise.toml
-cargo build --release              # → target/release/anna
-sudo make install                  # → /usr/bin/anna
+cargo build --release              # → target/release/sous-chef
+sudo make install                  # → /usr/bin/sous-chef
 ```
 
 A local `make install` just needs the host toolchain. With mise, cargo runs

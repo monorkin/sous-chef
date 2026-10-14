@@ -1,11 +1,11 @@
-//! What Anna has going right now, for whoever asks from the terminal.
+//! What she has going right now, for whoever asks from the terminal.
 //!
 //! A count of busy conversations says she is doing something but not what,
 //! and the things worth knowing are spread out: the board holds what a
 //! thread claimed, the dispatcher holds what is queued behind a turn, and
 //! only the turn and its hands know when they started. None of that is kept
 //! anywhere, so it is written down here while it happens and read back
-//! whole by `anna status`.
+//! whole by `sous-chef status`.
 
 use std::cmp::Reverse;
 use std::collections::{BTreeSet, HashMap};
@@ -41,7 +41,7 @@ pub struct HandAt {
 }
 
 /// A turn is taken off the picture however it ends — a reply, an error, a
-/// panic — so a crashed turn doesn't sit in `anna status` for ever.
+/// panic — so a crashed turn doesn't sit in `sous-chef status` for ever.
 pub struct WhileItRuns {
     at_work: Arc<AtWork>,
     conversation: String,

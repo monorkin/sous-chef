@@ -1,4 +1,4 @@
-//! `anna setup`: the one time a person decides things for the agent. After
+//! `sous-chef setup`: the one time a person decides things for the agent. After
 //! this it runs on its own.
 //!
 //! The walk: a name, who the agent is (its CLAUDE.md), how it writes, whether
@@ -136,7 +136,7 @@ pub struct Wizard<'a> {
 impl Wizard<'_> {
     fn walk_through(&mut self) -> Result<()> {
         let mut config = self.doing.load_config()?;
-        self.asking.banner("ANNA", "Jag känner en bot, hon heter Anna, Anna heter hon")?;
+        self.asking.banner("SOUS-CHEF", "Yes, chef!")?;
         self.asking.note("\nEvery question is optional. Enter keeps what's already there.")?;
         self.check_prerequisites()?;
 
@@ -214,11 +214,11 @@ impl Wizard<'_> {
         let question = format!("Do you want to start {agent} as soon as this computer starts?");
         let hint = format!("This will add a systemd entry for {agent}.");
         if !self.asking.yes(&Question { title: "Run at startup", question: &question, hint: &hint }, false)? {
-            return self.asking.done(&format!("`anna start` brings {agent} up whenever you want."));
+            return self.asking.done(&format!("`sous-chef start` brings {agent} up whenever you want."));
         }
 
         match self.doing.install_service(agent) {
-            Ok(()) => self.asking.done("Installed and enabled. `anna start` and `anna stop` go through it."),
+            Ok(()) => self.asking.done("Installed and enabled. `sous-chef start` and `sous-chef stop` go through it."),
             Err(error) => self.asking.trouble(&format!("Couldn't install it: {error:#}")),
         }
     }
@@ -284,7 +284,7 @@ impl Wizard<'_> {
                 self.doing.set_git_identity(agent, &email)?;
                 self.asking.done(&format!("{agent} pushes and opens pull requests as {login}, with commits by {email}."))
             }
-            None => self.asking.trouble(&format!("Without an email, {agent}'s commits are credited to nobody. Run setup again, or `anna github login --email <address>`.")),
+            None => self.asking.trouble(&format!("Without an email, {agent}'s commits are credited to nobody. Run setup again, or `sous-chef github login --email <address>`.")),
         }
     }
 
@@ -293,17 +293,17 @@ impl Wizard<'_> {
         self.asking.note(&format!(
             "
 Bring {agent} up, or talk from here:
-    anna start
-    anna chat \"hello\"
+    sous-chef start
+    sous-chef chat \"hello\"
 
 Any MCP server can be one of {agent}'s tools. Add it the way you would for Claude Code:
-    anna mcp add github -- github-mcp-server stdio
-    anna mcp list
+    sous-chef mcp add github -- github-mcp-server stdio
+    sous-chef mcp list
 A tool argument that carries text for people goes through the style first:
-    anna mcp prose github create_issue_comment body
+    sous-chef mcp prose github create_issue_comment body
 
 More Claude subscriptions for {agent} to rotate between:
-    anna claude account add
+    sous-chef claude account add
 "
         ))
     }
@@ -573,7 +573,7 @@ mod tests {
     }
 
     fn walk(asking: &mut Scripted, doing: &mut Pretend, name: &str) -> PathBuf {
-        let config_dir = std::env::temp_dir().join(format!("anna-setup-{name}-{}", std::process::id()));
+        let config_dir = std::env::temp_dir().join(format!("sous-chef-setup-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&config_dir);
         Wizard { asking, doing, config_dir: config_dir.clone() }.walk_through().unwrap();
         config_dir
@@ -609,7 +609,7 @@ mod tests {
         assert_eq!(doing.acts_as, [ActsAs::Agent, ActsAs::Person], "the agent acts as itself; HEY used as you acts as you");
         assert_eq!(doing.server_env[0]["XDG_CONFIG_HOME"], "{tools}", "her Basecamp profile lives in her own folder, wherever that is");
         assert_eq!(source_env(&doing), "{tools}");
-        assert!(config::environment(&doing.server_env[0])["XDG_CONFIG_HOME"].ends_with("/anna/tools"));
+        assert!(config::environment(&doing.server_env[0])["XDG_CONFIG_HOME"].ends_with("/sous-chef/tools"));
         assert!(doing.server_env[1].is_empty(), "a tool used as you runs with your own config");
         let (name, source) = &doing.sources[0];
         assert_eq!(name, "basecamp");

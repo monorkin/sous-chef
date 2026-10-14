@@ -69,7 +69,7 @@ fn installed_by_mise() -> Option<PathBuf> {
 }
 
 /// A run that was stopped because it used up the time it is allowed. This is
-/// the one hard stop Anna has, so callers can tell it from things going wrong.
+/// the one hard stop sous-chef has, so callers can tell it from things going wrong.
 #[derive(Debug)]
 pub struct OutOfTime {
     pub minutes: u64,
@@ -119,7 +119,7 @@ impl Started {
 
 /// One headless run. What claude is told goes in on stdin, never as an
 /// argument: arguments are there for every user of the machine to read, and
-/// what people write to Anna is not theirs to see. They also have a size
+/// what people write to her is not theirs to see. They also have a size
 /// limit that a long review would run into.
 pub fn reply_of(command: &mut Command, told: &str, limit: Duration, started: Option<&Started>) -> Result<Reply> {
     if started.is_some_and(|it| it.is_over()) {
@@ -313,8 +313,8 @@ fn stop_with_everything_it_started(root: libc::pid_t) {
     kill(&doomed);
 }
 
-/// Everything below a process, leaving the process itself alone — for Anna
-/// stopping her own threads and hands on the way out.
+/// Everything below a process, leaving the process itself alone — for
+/// sous-chef stopping the threads and hands on the way out.
 pub fn stop_everything_started_by(root: libc::pid_t) {
     kill(&everything_started_by(root));
 }
@@ -411,11 +411,11 @@ pub fn log_in() -> Result<()> {
         bail!("claude didn't finish logging in");
     }
     println!("{}", login());
-    println!("`anna claude account add --alias <name>` keeps this login in her rotation.");
+    println!("`sous-chef claude account add --alias <name>` keeps this login in her rotation.");
     Ok(())
 }
 
-/// Who she is to Claude right now, for `anna status`: the login in the
+/// Who she is to Claude right now, for `sous-chef status`: the login in the
 /// config folder she works from, which is the allowance she is spending.
 pub fn login() -> String {
     let home = paths::claude_config_home();
@@ -513,7 +513,7 @@ mod tests {
 
     #[test]
     fn nothing_she_commits_or_opens_carries_claude_codes_attribution() {
-        let home = std::env::temp_dir().join(format!("anna-settings-{}", std::process::id()));
+        let home = std::env::temp_dir().join(format!("sous-chef-settings-{}", std::process::id()));
         let _ = fs::remove_dir_all(&home);
         fs::create_dir_all(&home).unwrap();
 
@@ -571,7 +571,7 @@ mod tests {
 
     #[test]
     fn a_wrapper_or_a_shim_in_front_of_claude_is_not_claude() {
-        let folder = std::env::temp_dir().join(format!("anna-claude-binary-{}", std::process::id()));
+        let folder = std::env::temp_dir().join(format!("sous-chef-claude-binary-{}", std::process::id()));
         fs::create_dir_all(&folder).unwrap();
         let program = std::env::current_exe().unwrap();
 
@@ -645,7 +645,7 @@ mod tests {
 
     #[test]
     fn a_hands_login_is_the_current_access_token_and_never_the_refresh_token() {
-        let home = std::env::temp_dir().join(format!("anna-hand-login-{}", std::process::id()));
+        let home = std::env::temp_dir().join(format!("sous-chef-hand-login-{}", std::process::id()));
         let _ = fs::remove_dir_all(&home);
         fs::create_dir_all(home.join("profile")).unwrap();
         let hers = home.join(".credentials.json");

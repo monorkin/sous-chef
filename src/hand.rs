@@ -252,8 +252,8 @@ pub fn what_it_can_reach(services: &[Service], registries: bool) -> String {
 }
 
 /// A hand writes its project, and the brain acts on what it finds there, so
-/// a project is never a folder that holds what Anna or the person runs on:
-/// her own state, the home folder itself or anything above it, or a
+/// a project is never a folder that holds what sous-chef or the person runs on:
+/// its own state, the home folder itself or anything above it, or a
 /// dot-folder in it — keys, configs, other tools' credentials. Whoever asks
 /// for the hand doesn't matter; this is what keeps someone who can only hand
 /// out work from writing her schedules or her config through one.
@@ -283,8 +283,8 @@ mod tests {
     #[test]
     fn a_hand_is_told_what_it_can_reach_so_it_doesnt_call_it_broken() {
         let granted = [
-            Service { port: 33380, socket: PathBuf::from("/run/anna/service-h1-0.sock") },
-            Service { port: 6379, socket: PathBuf::from("/run/anna/service-h1-1.sock") },
+            Service { port: 33380, socket: PathBuf::from("/run/sous-chef/service-h1-0.sock") },
+            Service { port: 6379, socket: PathBuf::from("/run/sous-chef/service-h1-1.sock") },
         ];
 
         let told = what_it_can_reach(&granted, false);
@@ -297,16 +297,16 @@ mod tests {
     #[test]
     fn a_hand_is_kept_out_of_everything_that_is_not_a_project() {
         let home = Path::new("/home/someone");
-        let her_own = [PathBuf::from("/srv/anna/config"), PathBuf::from("/srv/anna/data")];
+        let her_own = [PathBuf::from("/srv/sous-chef/config"), PathBuf::from("/srv/sous-chef/data")];
         let refused = |project: &str| refuse_what_is_not_a_project(Path::new(project), home, &her_own).is_err();
 
         assert!(!refused("/home/someone/Work/frontdesk"));
         assert!(!refused("/home/someone/Work/frontdesk/.claude/worktrees/fix"), "only a dot-folder right in home is off limits");
         assert!(!refused("/srv/projects/frontdesk"));
 
-        assert!(refused("/srv/anna/data"), "her database lives here");
-        assert!(refused("/srv/anna/data/threads/t1"));
-        assert!(refused("/srv/anna"), "a folder that holds her state is as good as her state");
+        assert!(refused("/srv/sous-chef/data"), "its database lives here");
+        assert!(refused("/srv/sous-chef/data/threads/t1"));
+        assert!(refused("/srv/sous-chef"), "a folder that holds its state is as good as its state");
         assert!(refused("/home/someone"));
         assert!(refused("/home"));
         assert!(refused("/"));

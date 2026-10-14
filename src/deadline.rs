@@ -1,6 +1,6 @@
 //! Running a small program without waiting on it for ever.
 //!
-//! Anna asks other programs things on her way up — the keyring for a token,
+//! sous-chef asks other programs things on its way up — the keyring for a token,
 //! mise for its tools — and nobody is there to notice if one of them never
 //! answers. Each gets a few seconds, and an answer that doesn't come is
 //! treated as no answer.

@@ -7,7 +7,7 @@
 //! said for it rather than lost.
 //!
 //! Every turn runs under katami's supervision, which is where a thread's
-//! memory comes from: what Anna has learned is put in front of it, and the
+//! memory comes from: what she has learned is put in front of it, and the
 //! turn is reviewed afterwards for things worth remembering. Hands never run
 //! this way — they don't read memory, and what they write isn't trusted
 //! enough to become it.
@@ -255,7 +255,7 @@ pub fn wake(runtime: &Arc<Runtime>, conversation: Arc<dyn Conversation>, standin
 }
 
 /// One turn at a time in a conversation, across processes: the dispatcher
-/// queues its own turns, but `anna chat` is another process, and two turns
+/// queues its own turns, but `sous-chef chat` is another process, and two turns
 /// resuming one session would each write over what the other said. The
 /// kernel drops the lock with the process, so a crash can't leave one held.
 fn wait_for_the_conversation(directory: &Path) -> Result<File> {
@@ -352,7 +352,7 @@ fn turn(
         command.args(["--session-id", &session.id]);
     }
 
-    // A thread must not outlive Anna: stopping her stops everything
+    // A thread must not outlive sous-chef: stopping it stops everything
     unsafe {
         command.pre_exec(|| {
             libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn a_session_keeps_its_id_once_it_has_begun() {
-        let directory = std::env::temp_dir().join(format!("anna-session-{}", std::process::id()));
+        let directory = std::env::temp_dir().join(format!("sous-chef-session-{}", std::process::id()));
         fs::create_dir_all(&directory).unwrap();
 
         let first = Session::of(&directory).unwrap();
@@ -446,7 +446,7 @@ mod tests {
 
     #[test]
     fn an_untrusted_turn_is_refused_every_tool_of_her_own_but_reading_what_a_tool_takes() {
-        let directory = std::env::temp_dir().join(format!("anna-hook-{}", std::process::id()));
+        let directory = std::env::temp_dir().join(format!("sous-chef-hook-{}", std::process::id()));
         let written = directory.join(".claude/settings.local.json");
         settle_what_the_turn_may_use(&directory, Standing::CanAssignWork).unwrap();
         let settings: serde_json::Value = serde_json::from_str(&fs::read_to_string(&written).unwrap()).unwrap();

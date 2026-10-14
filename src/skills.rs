@@ -1,7 +1,7 @@
 //! Skills: what a session knows about a tool before it calls it.
 //!
 //! Claude Code reads skills from the folder it is configured with, which is
-//! Anna's own, so a skill she has is a skill every thread has — and it costs
+//! hers alone, so a skill she has is a skill every thread has — and it costs
 //! nothing until the session reads it.
 //!
 //! Some servers offer a gateway tool: one tool for a whole area, with an
@@ -150,7 +150,7 @@ fn named(name: &str, required: bool, schema: &Value) -> String {
     }
 }
 
-/// A skill of the person's own, copied in so Anna has it too.
+/// A skill of the person's own, copied in so she has it too.
 pub fn add(from: &Path) -> Result<String> {
     let folder = from.canonicalize().with_context(|| format!("{} does not exist", from.display()))?;
     if !folder.join("SKILL.md").is_file() {
@@ -182,7 +182,7 @@ pub fn list() -> Result<()> {
     let mut names = named_skills()?;
     names.sort();
     if names.is_empty() {
-        println!("No skills yet. They are written for you when you add an MCP server, and `anna skill add <folder>` takes one of your own.");
+        println!("No skills yet. They are written for you when you add an MCP server, and `sous-chef skill add <folder>` takes one of your own.");
     }
     for name in names {
         match description_of(&dir().join(&name)) {
@@ -228,7 +228,7 @@ fn description_of(skill: &Path) -> Option<String> {
 }
 
 /// Every skill, copied where a sandboxed session can read it: its profile is
-/// the only folder of Anna's it has.
+/// the only folder of sous-chef's it has.
 pub fn copy_into_profile(profile: &Path) -> Result<()> {
     if dir().is_dir() {
         copy_folder(&dir(), &profile.join("skills"))?;
@@ -291,7 +291,7 @@ mod tests {
     }
 
     fn description_of_written(written: &str) -> Option<String> {
-        let skill = std::env::temp_dir().join(format!("anna-skill-{}", std::process::id()));
+        let skill = std::env::temp_dir().join(format!("sous-chef-skill-{}", std::process::id()));
         fs::create_dir_all(&skill).unwrap();
         fs::write(skill.join("SKILL.md"), written).unwrap();
         let found = description_of(&skill);

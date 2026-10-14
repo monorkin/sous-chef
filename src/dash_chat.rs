@@ -1,5 +1,5 @@
-//! The dashboard's chat: a line to tell a thread something the way `anna
-//! tell` does, with what is going on in that thread at the head and the end
+//! The dashboard's chat: a line to tell a thread something the way
+//! `sous-chef tell` does, with what is going on in that thread at the head and the end
 //! of its transcript below.
 
 use ratatui::Frame;
@@ -146,7 +146,7 @@ fn head_of(thread: Option<&str>, about: Option<&ThreadNow>) -> Vec<Line<'static>
     lines
 }
 
-/// Who a line of a thread's transcript, as `anna transcript` renders it,
+/// Who a line of a thread's transcript, as `sous-chef transcript` renders it,
 /// is from.
 #[derive(Debug, PartialEq)]
 enum Said {

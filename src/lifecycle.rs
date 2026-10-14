@@ -1,10 +1,10 @@
-//! `anna start`, `stop`, `status` and `poke`: the commands that talk to a
-//! running Anna, or bring one up.
+//! `sous-chef start`, `stop`, `status` and `poke`: the commands that talk to
+//! a running sous-chef, or bring one up.
 //!
 //! When the systemd service is installed, starting and stopping go through
-//! it, so systemd's idea of whether she is running stays true. Otherwise
-//! `start` puts `anna run` in the background itself, and `stop` asks her over
-//! the control socket.
+//! it, so systemd's idea of whether it is running stays true. Otherwise
+//! `start` puts `sous-chef run` in the background itself, and `stop` asks it
+//! over the control socket.
 
 use anyhow::{Context, Result, bail};
 use serde_json::json;
@@ -22,7 +22,7 @@ const PATIENCE: Duration = Duration::from_secs(20);
 
 pub fn start() -> Result<()> {
     if control::is_running() {
-        println!("Anna is already running.");
+        println!("sous-chef is already running.");
         return Ok(());
     }
 
@@ -33,16 +33,16 @@ pub fn start() -> Result<()> {
     }
 
     if wait_until(control::is_running) {
-        println!("Anna is running. `anna log -f` shows what she's doing.");
+        println!("sous-chef is running. `sous-chef log -f` shows what she's doing.");
         Ok(())
     } else {
-        bail!("Anna did not come up; see {}", paths::output_file().display())
+        bail!("sous-chef did not come up; see {}", paths::output_file().display())
     }
 }
 
 pub fn stop() -> Result<()> {
     if !control::is_running() {
-        println!("Anna isn't running.");
+        println!("sous-chef isn't running.");
         return Ok(());
     }
 
@@ -53,15 +53,15 @@ pub fn stop() -> Result<()> {
     }
 
     if wait_until(|| !control::is_running()) {
-        println!("Anna stopped.");
+        println!("sous-chef stopped.");
         Ok(())
     } else {
-        bail!("Anna is still running")
+        bail!("sous-chef is still running")
     }
 }
 
 /// Stop, then start. Nothing is lost in between: every turn that was going
-/// or waiting is kept in the store and asked again when she is back.
+/// or waiting is kept in the store and asked again when it is back.
 pub fn restart() -> Result<()> {
     stop()?;
     start()
@@ -71,7 +71,7 @@ pub fn status() -> Result<()> {
     match control::ask(json!({ "command": "status" })) {
         Ok(answer) => {
             let status = &answer["status"];
-            println!("Anna has been running since {}, as process {}.", text(&status["since"]), status["process"]);
+            println!("sous-chef has been running since {}, as process {}.", text(&status["since"]), status["process"]);
             println!("Working as: {}", text(&status["claude_login"]));
             if let Some(login) = status["github_login"].as_str() {
                 println!("On GitHub as: {login}");
@@ -82,7 +82,7 @@ pub fn status() -> Result<()> {
                     print_going_on(turns);
                     print_board(&status["board"]);
                 }
-                // An Anna started before this build knows the count and
+                // A sous-chef started before this build knows the count and
                 // nothing else; saying nothing is going on would be a guess
                 None => println!("Conversations going on: {}", status["conversations"]),
             }
@@ -112,7 +112,7 @@ fn answered(answer: serde_json::Value) -> Result<()> {
     Ok(())
 }
 
-/// What a running Anna said back when she did it, an error when she
+/// What a running sous-chef said back when it did it, an error when it
 /// couldn't.
 fn said_back(answer: serde_json::Value) -> Result<String> {
     if answer["ok"].as_bool().unwrap_or(false) {
@@ -122,7 +122,7 @@ fn said_back(answer: serde_json::Value) -> Result<String> {
     }
 }
 
-/// `anna run` in a session of its own, so it survives the terminal that
+/// `sous-chef run` in a session of its own, so it survives the terminal that
 /// started it, with its output kept where `start` can point at it.
 fn start_in_the_background() -> Result<()> {
     let output_path = paths::output_file();
@@ -131,7 +131,7 @@ fn start_in_the_background() -> Result<()> {
     }
     let output = OpenOptions::new().create(true).append(true).open(&output_path)?;
 
-    let mut command = Command::new(std::env::current_exe().context("could not determine Anna's own path")?);
+    let mut command = Command::new(std::env::current_exe().context("could not determine sous-chef's own path")?);
     command
         .arg("run")
         .stdin(Stdio::null())
@@ -143,7 +143,7 @@ fn start_in_the_background() -> Result<()> {
             Ok(())
         });
     }
-    command.spawn().context("could not start Anna")?;
+    command.spawn().context("could not start sous-chef")?;
     Ok(())
 }
 

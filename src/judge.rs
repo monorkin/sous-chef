@@ -29,7 +29,7 @@ const TRIES_FOR_CLAUDE: u32 = 6;
 const BIG_TEXT: usize = 8 * 1024;
 /// Jev answers a 76 KB listing with a 400, so past this it isn't asked.
 const MOST_FOR_JEV: usize = 64 * 1024;
-/// A guess, for `anna dash`'s estimate: "fractions of a cent" a request,
+/// A guess, for `sous-chef dash`'s estimate: "fractions of a cent" a request,
 /// taken as a tenth of one. Change it to what the bill says.
 pub const JEV_DOLLARS_PER_REQUEST_ESTIMATE: f64 = 0.001;
 
@@ -74,7 +74,7 @@ impl Judge {
             })
             .collect();
         if screeners.is_empty() {
-            bail!("screening lists only jev, and no Jev key is set up: add a Claude model to models.screening, or a key with `anna setup`");
+            bail!("screening lists only jev, and no Jev key is set up: add a Claude model to models.screening, or a key with `sous-chef setup`");
         }
         Ok(Judge { screeners })
     }
@@ -104,7 +104,7 @@ impl Judge {
         }
     }
 
-    /// One screener being down is not a reason to stop judging, and an Anna
+    /// One screener being down is not a reason to stop judging, and an agent
     /// who refuses everyone for the length of someone else's outage isn't
     /// autonomous: whenever one can't answer — or, for Jev, the breaker says
     /// not to ask — the next one is asked. Only when none can is there no
@@ -147,7 +147,7 @@ fn ask_jev_if_allowed(breaker: &Breaker, url: &str, api_key: &str, question: &st
         return None;
     }
 
-    // Every request that goes out is billed, answered or not; `anna dash`
+    // Every request that goes out is billed, answered or not; `sous-chef dash`
     // counts these
     logs::event("judge.jev_asked", json!({ "bytes": text.len() }));
     let (outcome, answer) = match ask_jev(url, api_key, question, text) {

@@ -266,9 +266,9 @@ mod tests {
 
     #[test]
     fn a_conversation_schedules_lists_and_cancels_its_own() {
-        let directory = std::env::temp_dir().join(format!("anna-schedule-tools-{}", std::process::id()));
+        let directory = std::env::temp_dir().join(format!("sous-chef-schedule-tools-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
-        let database = directory.join("anna.db");
+        let database = directory.join("sous-chef.db");
         let origin = Origin { source: "basecamp".to_string(), conversation: "card-1".to_string() };
         let elsewhere = Origin { source: "basecamp".to_string(), conversation: "card-2".to_string() };
 

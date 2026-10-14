@@ -90,7 +90,7 @@ pub struct Outside {
     /// Whether the user's systemd can be asked for a scope. With one, a
     /// session gets a ceiling on memory and on how many processes it may
     /// have, so a hand that forks without end or eats all the memory takes
-    /// itself down and not the machine Anna runs on.
+    /// itself down and not the machine sous-chef runs on.
     pub scopes: bool,
     pub models: Models,
 }
@@ -184,8 +184,8 @@ impl Sandbox<'_> {
     pub fn claude(&self, claude_binary: &Path) -> Command {
         let mut command = self.contained();
         command
-            // Nothing of Anna's environment goes in: whatever tokens she was
-            // started with are hers, and what a session needs is set below
+            // Nothing of sous-chef's environment goes in: whatever tokens it was
+            // started with are its, and what a session needs is set below
             .args(["--unshare-all", "--die-with-parent", "--clearenv"])
             .args(["--ro-bind", "/usr", "/usr"])
             .args(["--symlink", "usr/bin", "/bin"])
@@ -316,8 +316,8 @@ impl Sandbox<'_> {
     }
 
     /// bwrap, inside a scope of its own when there can be one. A scope runs
-    /// the program in place of systemd-run, so the process Anna started is
-    /// still the one she watches and stops.
+    /// the program in place of systemd-run, so the process sous-chef started is
+    /// still the one it watches and stops.
     fn contained(&self) -> Command {
         if self.outside.scopes {
             let mut command = scope();
@@ -427,14 +427,14 @@ mod tests {
 
     #[test]
     fn a_hand_can_write_its_project_but_not_the_parts_of_git_that_run_code() {
-        let project = std::env::temp_dir().join(format!("anna-sandbox-{}", std::process::id()));
+        let project = std::env::temp_dir().join(format!("sous-chef-sandbox-{}", std::process::id()));
         fs::create_dir_all(project.join(".git/hooks")).unwrap();
         fs::write(project.join(".git/config"), "").unwrap();
         fs::write(project.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
         let project_path = project.to_str().unwrap();
 
         let outside = Outside {
-            proxy_socket: PathBuf::from("/run/anna/proxy.sock"),
+            proxy_socket: PathBuf::from("/run/sous-chef/proxy.sock"),
             toolchains: Toolchains::default(),
             time_limit: Duration::from_secs(60),
             gitconfig: None,
@@ -448,7 +448,7 @@ mod tests {
             broker_socket: None,
             writable: true,
             build_dir: PathBuf::from("/data/builds/abc"),
-            services: vec![Service { port: 33380, socket: PathBuf::from("/run/anna/service-h1-0.sock") }],
+            services: vec![Service { port: 33380, socket: PathBuf::from("/run/sous-chef/service-h1-0.sock") }],
             registries: None,
             scratch: PathBuf::from("/data/hands/h1"),
         });
@@ -459,14 +459,14 @@ mod tests {
             binds(&arguments, "--bind"),
             [("/data/hands/h1/tmp", "/tmp"), ("/data/hands/h1/home", "/home/hand"), (project_path, project_path), (git.as_str(), git.as_str()), ("/data/hands/h1/profile", "/profile"), ("/data/builds/abc", BUILD_INSIDE)]
         );
-        assert!(binds(&arguments, "--ro-bind").contains(&("/run/anna/service-h1-0.sock", "/run/service-0.sock")));
+        assert!(binds(&arguments, "--ro-bind").contains(&("/run/sous-chef/service-h1-0.sock", "/run/service-0.sock")));
         assert!(arguments.last().unwrap() == "sandbox" && arguments[arguments.len() - 2].contains("TCP-LISTEN:33380,fork,bind=127.0.0.1 UNIX-CONNECT:/run/service-0.sock"));
         assert!(arguments.windows(3).any(|it| it[0] == "--setenv" && it[1] == "CARGO_TARGET_DIR" && it[2] == BUILD_INSIDE));
         assert!(arguments.windows(3).any(|it| it[0] == "--setenv" && it[1] == "CLAUDE_CODE_DISABLE_WORKFLOWS" && it[2] == "1"));
         for (name, value) in [("CARGO_NET_OFFLINE", "true"), ("MISE_OFFLINE", "1"), ("YARN_ENABLE_OFFLINE_MODE", "1"), ("npm_config_offline", "true")] {
             assert!(arguments.windows(3).any(|it| it[0] == "--setenv" && it[1] == name && it[2] == value), "{name} tells its tool there is no network");
         }
-        assert!(binds(&arguments, "--ro-bind").contains(&("/run/anna/proxy.sock", "/run/proxy.sock")));
+        assert!(binds(&arguments, "--ro-bind").contains(&("/run/sous-chef/proxy.sock", "/run/proxy.sock")));
         assert!(arguments.windows(3).any(|it| it[0] == "--setenv" && it[1] == "CARGO_BUILD_JOBS" && it[2].parse::<usize>().is_ok_and(|jobs| jobs >= 2)), "cargo doesn't take every core");
 
         let with_registries = arguments_of(&Sandbox {
@@ -477,10 +477,10 @@ mod tests {
             writable: true,
             build_dir: PathBuf::from("/data/builds/abc"),
             services: Vec::new(),
-            registries: Some(PathBuf::from("/run/anna/proxy-h1.sock")),
+            registries: Some(PathBuf::from("/run/sous-chef/proxy-h1.sock")),
             scratch: PathBuf::from("/data/hands/h1"),
         });
-        assert!(binds(&with_registries, "--ro-bind").contains(&("/run/anna/proxy-h1.sock", "/run/proxy.sock")), "its own proxy stands in for the shared one");
+        assert!(binds(&with_registries, "--ro-bind").contains(&("/run/sous-chef/proxy-h1.sock", "/run/proxy.sock")), "its own proxy stands in for the shared one");
         assert!(!with_registries.iter().any(|it| it == "MISE_OFFLINE" || it == "CARGO_NET_OFFLINE"), "the package managers aren't told they are offline");
         assert!(with_registries.windows(3).any(|it| it[0] == "--setenv" && it[1] == "GIT_TERMINAL_PROMPT" && it[2] == "0"), "git still never asks for a login");
         assert!(!arguments.iter().any(|it| it == "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"), "a hand may run its tests in the background");
@@ -499,11 +499,11 @@ mod tests {
     /// The real thing, with a shell where Claude would be: what the session
     /// would find in its environment and be able to do to the project.
     #[test]
-    fn a_hand_gets_none_of_annas_environment_and_cannot_start_or_repoint_a_repository() {
+    fn a_hand_gets_none_of_sous_chefs_environment_and_cannot_start_or_repoint_a_repository() {
         if crate::paths::program("bwrap").is_none() || crate::paths::program("socat").is_none() {
             return;
         }
-        let root = std::env::temp_dir().join(format!("anna-sandbox-real-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("sous-chef-sandbox-real-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let plain = root.join("plain");
         let worktree = root.join("worktree");
@@ -536,12 +536,12 @@ mod tests {
                 registries: None,
                 scratch: root.join("scratch"),
             };
-            let output = sandbox.claude(Path::new("/usr/bin/bash")).args(["-c", script]).env("ANNA_TEST_SECRET", "s3cret").output().unwrap();
+            let output = sandbox.claude(Path::new("/usr/bin/bash")).args(["-c", script]).env("SOUS_CHEF_TEST_SECRET", "s3cret").output().unwrap();
             String::from_utf8_lossy(&output.stdout).into_owned()
         };
 
         let environment = run(&plain, "env");
-        assert!(!environment.contains("ANNA_TEST_SECRET"), "{environment}");
+        assert!(!environment.contains("SOUS_CHEF_TEST_SECRET"), "{environment}");
         assert!(environment.contains("HOME=/home/hand"));
 
         let attempts = "touch made-it; (mkdir -p .git/hooks && echo 'evil' > .git/hooks/pre-commit) 2>/dev/null && echo started; echo 'gitdir: /evil' > .git 2>/dev/null && echo repointed; echo done";
@@ -562,7 +562,7 @@ mod tests {
         if crate::paths::program("bwrap").is_none() || crate::paths::program("socat").is_none() {
             return;
         }
-        let root = std::env::temp_dir().join(format!("anna-sandbox-git-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("sous-chef-sandbox-git-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let project = root.join("project");
         fs::create_dir_all(&project).unwrap();
@@ -641,7 +641,7 @@ mod tests {
         if crate::paths::program("bwrap").is_none() || crate::paths::program("socat").is_none() {
             return;
         }
-        let root = std::env::temp_dir().join(format!("anna-sandbox-rust-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("sous-chef-sandbox-rust-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let mut toolchains = Toolchains::discover();
         let Some(rust) = toolchains.rust.clone() else {
@@ -656,7 +656,7 @@ mod tests {
         make_scratch(&root.join("scratch")).unwrap();
         fs::create_dir_all(root.join("build")).unwrap();
         fs::write(root.join("proxy.sock"), "").unwrap();
-        // A dependency that is in the host's cache because Anna herself uses it
+        // A dependency that is in the host's cache because sous-chef itself uses it
         fs::write(project.join("Cargo.toml"), "[package]\nname = \"probe\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[dependencies]\nlibc = \"0.2\"\n").unwrap();
         fs::write(project.join("src/main.rs"), "fn main() { println!(\"pid {}\", unsafe { libc::getpid() } > 0); }\n").unwrap();
         let fetched = Command::new(rust.toolchain.join("bin/cargo")).args(["generate-lockfile", "--offline"]).current_dir(&project).output().unwrap();
@@ -715,7 +715,7 @@ mod tests {
     #[test]
     fn a_session_in_the_sandbox_gets_its_own_tools_and_no_agents_of_its_own() {
         let outside = Outside {
-            proxy_socket: PathBuf::from("/run/anna/proxy.sock"),
+            proxy_socket: PathBuf::from("/run/sous-chef/proxy.sock"),
             toolchains: Toolchains::default(),
             time_limit: Duration::from_secs(60),
             gitconfig: None,
@@ -748,7 +748,7 @@ mod tests {
     fn a_reviewer_can_write_nothing_in_the_project() {
         let installs = PathBuf::from("/home/someone/.local/share/mise/installs");
         let outside = Outside {
-            proxy_socket: PathBuf::from("/run/anna/proxy.sock"),
+            proxy_socket: PathBuf::from("/run/sous-chef/proxy.sock"),
             toolchains: Toolchains {
                 installs: Some(installs.clone()),
                 bins: vec![installs.join("ruby/3.4.7/bin")],
@@ -756,7 +756,7 @@ mod tests {
                 mbx: None,
             },
             time_limit: Duration::from_secs(60),
-            gitconfig: Some(PathBuf::from("/home/someone/.config/anna/tools/gitconfig")),
+            gitconfig: Some(PathBuf::from("/home/someone/.config/sous-chef/tools/gitconfig")),
             scopes: true,
             models: Models::default(),
         };
@@ -764,7 +764,7 @@ mod tests {
             project: PathBuf::from("/home/someone/project"),
             profile: PathBuf::from("/data/reviews/r1/profile"),
             outside: &outside,
-            broker_socket: Some(PathBuf::from("/run/anna/hand-h1.sock")),
+            broker_socket: Some(PathBuf::from("/run/sous-chef/hand-h1.sock")),
             writable: false,
             build_dir: PathBuf::from("/data/builds/abc"),
             services: Vec::new(),
@@ -781,23 +781,23 @@ mod tests {
         assert_eq!(binds(&arguments, "--bind"), [("/data/hands/h1/tmp", "/tmp"), ("/data/hands/h1/home", "/home/hand"), ("/data/reviews/r1/profile", "/profile"), ("/data/builds/abc", BUILD_INSIDE)]);
         assert!(arguments.windows(3).any(|it| it[0] == "--setenv" && it[1] == "CARGO_TARGET_DIR" && it[2] == BUILD_INSIDE), "without mbx, builds go to a folder of their own");
         assert!(binds(&arguments, "--ro-bind").contains(&(installs.to_str().unwrap(), installs.to_str().unwrap())));
-        assert!(binds(&arguments, "--ro-bind").contains(&("/home/someone/.config/anna/tools/gitconfig", "/home/hand/.gitconfig")), "her commits are authored as her");
+        assert!(binds(&arguments, "--ro-bind").contains(&("/home/someone/.config/sous-chef/tools/gitconfig", "/home/hand/.gitconfig")), "her commits are authored as her");
         assert!(arguments.windows(3).any(|it| {
             it[0] == "--setenv" && it[1] == "PATH" && it[2] == "/home/someone/.local/share/mise/installs/ruby/3.4.7/bin:/usr/bin"
         }));
         assert!(binds(&arguments, "--ro-bind").contains(&("/home/someone/project", "/home/someone/project")));
-        assert!(binds(&arguments, "--ro-bind").contains(&("/run/anna/hand-h1.sock", BROKER_INSIDE)));
+        assert!(binds(&arguments, "--ro-bind").contains(&("/run/sous-chef/hand-h1.sock", BROKER_INSIDE)));
         assert!(arguments.windows(3).any(|it| it[0] == "--setenv" && it[1] == "MISE_TRUSTED_CONFIG_PATHS" && it[2] == "/home/someone/project"));
     }
 
     #[test]
     fn with_mbx_cargo_is_mbx_and_it_keeps_every_target_it_may() {
-        let root = std::env::temp_dir().join(format!("anna-sandbox-mbx-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("sous-chef-sandbox-mbx-{}", std::process::id()));
         let _ = fs::remove_dir_all(&root);
         let store = root.join("store");
         fs::create_dir_all(&store).unwrap();
         let outside = Outside {
-            proxy_socket: PathBuf::from("/run/anna/proxy.sock"),
+            proxy_socket: PathBuf::from("/run/sous-chef/proxy.sock"),
             toolchains: Toolchains { mbx: Some(Mbx { binary: PathBuf::from("/installs/mr-boxington/1.10.0/mbx"), store: store.clone() }), ..Toolchains::default() },
             time_limit: Duration::from_secs(60),
             gitconfig: None,

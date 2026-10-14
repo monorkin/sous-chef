@@ -1,12 +1,12 @@
-//! What `anna setup` writes and everything else reads.
+//! What `sous-chef setup` writes and everything else reads.
 //!
 //! The settings are one JSON file, `config.json`. The two pieces of prose
 //! live next to it as markdown, because nobody should have to edit prose
-//! inside a JSON string: `style.md` is how Anna writes to people, and
+//! inside a JSON string: `style.md` is how the agent writes to people, and
 //! `CLAUDE.md` is who she is — every thread reads it. Tokens are not here at
 //! all; see `secrets`.
 //!
-//! All three files steer Anna, so they are written private and refused if
+//! All three files steer the agent, so they are written private and refused if
 //! anyone but their owner could have written them.
 
 use anyhow::{Context, Result};
@@ -26,10 +26,10 @@ pub struct Config {
     pub name: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub mcp_servers: BTreeMap<String, McpServer>,
-    /// Where people talk to Anna, by name.
+    /// Where people talk to the agent, by name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub sources: BTreeMap<String, Source>,
-    /// Who Anna listens to: the sender id a source reports, to the name she
+    /// Who the agent listens to: the sender id a source reports, to the name she
     /// knows them by. Anyone else is ignored.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub people: BTreeMap<String, String>,
@@ -176,7 +176,7 @@ impl Default for Config {
     }
 }
 
-/// A source is an MCP server Anna also listens on. There is no push in MCP,
+/// A source is an MCP server sous-chef also listens on. There is no push in MCP,
 /// so listening is calling one of the server's own tools on a timer and
 /// picking the new messages out of the JSON it answers with. The four
 /// pointers are JSON pointers into each item.
@@ -211,7 +211,7 @@ pub struct Source {
     /// thread then answers with the server's own tools.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply: Option<Call>,
-    /// A command that runs for as long as Anna does and prints a line
+    /// A command that runs for as long as sous-chef does and prints a line
     /// whenever something happens on this source — `hey watch --events new`,
     /// say. Every line is a poke. With one of these the timer only has to
     /// catch what the trigger missed.
@@ -237,8 +237,8 @@ pub struct Source {
 /// Two JSON pointers: `from` into the watch tool's answer, `into` into its
 /// arguments. The first call goes out as written, which for such a source
 /// means "from now"; every later one carries the position the last answer
-/// gave. It is kept on disk, so what arrived while Anna was down is there
-/// when she comes back.
+/// gave. It is kept on disk, so what arrived while sous-chef was down is there
+/// when it comes back.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Cursor {
     pub from: String,
@@ -315,7 +315,7 @@ pub struct McpServer {
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
-    /// Set for the server on top of Anna's own environment. How a tool she
+    /// Set for the server on top of sous-chef's own environment. How a tool she
     /// has a profile of her own in is kept to that profile.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
@@ -326,7 +326,7 @@ pub struct McpServer {
     /// What the server's tool listing looked like when it was added.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fingerprint: Option<String>,
-    /// The server acts as the person Anna works for, not as her: only a
+    /// The server acts as the person she works for, not as her: only a
     /// turn on a trusted person's word gets its tools.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub trusted_only: bool,
@@ -384,7 +384,7 @@ mod tests {
 
     #[test]
     fn a_missing_file_is_an_empty_config_and_saving_round_trips() {
-        let directory = std::env::temp_dir().join(format!("anna-config-{}", std::process::id()));
+        let directory = std::env::temp_dir().join(format!("sous-chef-config-{}", std::process::id()));
         let path = directory.join("config.json");
         assert_eq!(Config::load_from(&path).unwrap(), Config::default());
 
@@ -394,7 +394,7 @@ mod tests {
             McpServer {
                 command: "basecamp".to_string(),
                 args: vec!["mcp".to_string()],
-                env: BTreeMap::from([("XDG_CONFIG_HOME".to_string(), "/home/someone/.config/anna/tools".to_string())]),
+                env: BTreeMap::from([("XDG_CONFIG_HOME".to_string(), "/home/someone/.config/sous-chef/tools".to_string())]),
                 prose: BTreeMap::from([("create_comment".to_string(), vec!["content".to_string()])]),
                 fingerprint: Some("00000000deadbeef".to_string()),
                 trusted_only: true,

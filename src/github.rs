@@ -100,7 +100,7 @@ mod tests {
 
     #[test]
     fn git_and_gh_are_hers_once_her_gitconfig_is_written() {
-        let tools = std::env::temp_dir().join(format!("anna-github-{}", std::process::id()));
+        let tools = std::env::temp_dir().join(format!("sous-chef-github-{}", std::process::id()));
         let _ = fs::remove_dir_all(&tools);
         fs::create_dir_all(&tools).unwrap();
         assert!(environment_in(&tools).is_empty(), "without a login of her own, a turn runs them as the person");

@@ -1,4 +1,4 @@
-//! The clock Anna's threads set for themselves, and the post between them.
+//! The clock her threads set for themselves, and the post between them.
 //! Twice a minute it wakes the thread of every schedule that has come due and
 //! of every message one thread left for another.
 //!

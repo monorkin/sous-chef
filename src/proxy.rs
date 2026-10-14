@@ -77,7 +77,7 @@ impl Drop for Proxy {
 }
 
 /// One port on this machine's loopback, reached through a unix socket the
-/// sandbox binds in. It runs inside Anna rather than as a socat of its own:
+/// sandbox binds in. It runs inside sous-chef rather than as a socat of its own:
 /// a child told to die with its parent dies with the thread that started
 /// it, and start_hand's thread is gone the moment it answers — taking every
 /// hand's database with it before the hand had begun.
@@ -171,7 +171,7 @@ mod tests {
     use std::net::TcpListener;
 
     fn socket_path(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!("anna-proxy-{name}-{}.sock", std::process::id()))
+        std::env::temp_dir().join(format!("sous-chef-proxy-{name}-{}.sock", std::process::id()))
     }
 
     #[test]

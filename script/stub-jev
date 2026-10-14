@@ -1,8 +1,8 @@
 #!/usr/bin/env ruby
-# A stand-in for Jev, for running Anna end to end without touching TypeSafe.
+# A stand-in for Jev, for running sous-chef end to end without touching TypeSafe.
 #
 #   script/stub-jev 4510 &
-#   then, in the config of the Anna under test:  "jev_url": "http://127.0.0.1:4510/v1/systemone"
+#   then, in the config of the sous-chef under test:  "jev_url": "http://127.0.0.1:4510/v1/systemone"
 #   and any non-empty string as the jev_api_key secret.
 #
 # It answers every question the same dumb, predictable way: a text is "yes"

@@ -1,4 +1,4 @@
-//! Where Anna keeps her state, and where Claude Code keeps its.
+//! Where sous-chef keeps its state, and where Claude Code keeps its.
 //!
 //! Everything durable lives under one data directory: the log, each thread's
 //! session, each hand's throw-away profile. Sockets live in the runtime
@@ -7,10 +7,13 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
+const NAME: &str = "sous-chef";
+pub const DATABASE: &str = "sous-chef.db";
+
 /// The Claude Code config folder she works from: the login she is. Hers,
-/// under her config, and never the person's or the shell's: `anna claude
-/// login` logs into it, `anna claude account add` keeps what is logged in
-/// there, and `anna claude switch` puts another stored account in its
+/// under her config, and never the person's or the shell's: `sous-chef
+/// claude login` logs into it, `sous-chef claude account add` keeps what is
+/// logged in there, and `sous-chef claude switch` puts another stored account in its
 /// place — the same as ax does for a person, in a store of her own.
 /// Everything she starts is told this folder explicitly.
 pub fn claude_config_home() -> PathBuf {
@@ -46,7 +49,7 @@ pub fn tools_config_home() -> PathBuf {
 
 /// Tells the libraries she is built on where her own folders are and which
 /// login she works as. Once, first thing, in every process that is her —
-/// the hooks and reviews katami runs as `anna review …` included, so they
+/// the hooks and reviews katami runs as `sous-chef review …` included, so they
 /// find the same store and login she does.
 pub fn claim_own_state() {
     katami::settings::configure(katami::settings::Settings {
@@ -57,7 +60,7 @@ pub fn claim_own_state() {
         data_dir: Some(accounts_dir()),
         claude_config_dir: Some(claude_config_home()),
         // So what ax tells someone to run next is a command that exists here
-        invoked_as: Some("anna claude".to_string()),
+        invoked_as: Some("sous-chef claude".to_string()),
     });
     keep_to_herself(&config_dir());
     keep_to_herself(&data_dir());
@@ -66,7 +69,7 @@ pub fn claim_own_state() {
 /// Her folders are closed to everyone else at the top, every time she
 /// starts. What is inside — logs, sessions, the database, her tools' logins —
 /// is then out of reach whatever mode a single file was made with, and an
-/// Anna set up before this was done is closed too.
+/// install set up before this was done is closed too.
 fn keep_to_herself(directory: &Path) {
     use std::os::unix::fs::PermissionsExt;
 
@@ -76,12 +79,12 @@ fn keep_to_herself(directory: &Path) {
 }
 
 pub fn database() -> PathBuf {
-    data_dir().join("anna.db")
+    data_dir().join(DATABASE)
 }
 
-/// What a backgrounded `anna run` prints, for when she doesn't come up.
+/// What a backgrounded `sous-chef run` prints, for when she doesn't come up.
 pub fn output_file() -> PathBuf {
-    data_dir().join("anna.out")
+    data_dir().join("sous-chef.out")
 }
 
 pub fn log_file() -> PathBuf {
@@ -93,7 +96,7 @@ pub fn thread_dir(conversation: &str) -> PathBuf {
 }
 
 /// Where this process keeps the throw-away profiles of its hands and
-/// reviewers. Keyed by process so a second `anna` never sweeps the first
+/// reviewers. Keyed by process so a second `sous-chef` never sweeps the first
 /// one's away.
 pub fn sessions_dir() -> PathBuf {
     all_sessions_dir().join(std::process::id().to_string())
@@ -114,7 +117,7 @@ pub fn source_dir(name: &str) -> PathBuf {
 }
 
 /// The one socket whose name doesn't carry the process id: whoever holds it
-/// is the running Anna.
+/// is the running sous-chef.
 pub fn control_socket() -> PathBuf {
     runtime_dir().join("control.sock")
 }
@@ -122,7 +125,7 @@ pub fn control_socket() -> PathBuf {
 /// Creates a folder that only its owner can enter. Sockets are only as
 /// private as the folder they sit in, and the fallback runtime folder lives
 /// under the home directory, which others can often traverse. A folder that
-/// already exists is left as it is — it may not be Anna's to change.
+/// already exists is left as it is — it may not be sous-chef's to change.
 pub fn make_private_dir(directory: &std::path::Path) -> std::io::Result<()> {
     use std::os::unix::fs::DirBuilderExt;
 
@@ -156,26 +159,37 @@ pub fn socket(name: &str) -> PathBuf {
 }
 
 pub fn config_dir() -> PathBuf {
-    if let Some(dir) = env::var_os("XDG_CONFIG_HOME").filter(|it| !it.is_empty()) {
-        PathBuf::from(dir).join("anna")
-    } else {
-        home().join(".config/anna")
-    }
+    config_dir_named(NAME)
 }
 
 pub fn data_dir() -> PathBuf {
-    if let Some(dir) = env::var_os("XDG_DATA_HOME").filter(|it| !it.is_empty()) {
-        PathBuf::from(dir).join("anna")
-    } else {
-        home().join(".local/share/anna")
-    }
+    data_dir_named(NAME)
 }
 
 pub fn runtime_dir() -> PathBuf {
-    if let Some(dir) = env::var_os("XDG_RUNTIME_DIR").filter(|it| !it.is_empty()) {
-        PathBuf::from(dir).join("anna")
-    } else {
-        data_dir().join("run")
+    runtime_dir_named(NAME)
+}
+
+/// Named, so the folders of an install made under another name can be found
+/// to move them.
+pub fn config_dir_named(name: &str) -> PathBuf {
+    match env::var_os("XDG_CONFIG_HOME").filter(|it| !it.is_empty()) {
+        Some(dir) => PathBuf::from(dir).join(name),
+        None => home().join(".config").join(name),
+    }
+}
+
+pub fn data_dir_named(name: &str) -> PathBuf {
+    match env::var_os("XDG_DATA_HOME").filter(|it| !it.is_empty()) {
+        Some(dir) => PathBuf::from(dir).join(name),
+        None => home().join(".local/share").join(name),
+    }
+}
+
+pub fn runtime_dir_named(name: &str) -> PathBuf {
+    match env::var_os("XDG_RUNTIME_DIR").filter(|it| !it.is_empty()) {
+        Some(dir) => PathBuf::from(dir).join(name),
+        None => data_dir_named(name).join("run"),
     }
 }
 

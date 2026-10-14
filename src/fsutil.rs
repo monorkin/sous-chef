@@ -1,6 +1,6 @@
 //! Files only their owner should be able to touch.
 //!
-//! Anna's config decides who she listens to and which commands she runs as
+//! The config decides who she listens to and which commands she runs as
 //! MCP servers, and her style and personality files go straight into prompts.
 //! Anyone who can write one of them controls her, so they are written private
 //! and refused if they are found otherwise — loudly, because a config that
@@ -49,7 +49,7 @@ pub fn read_private(path: &Path) -> Result<String> {
     Ok(fs::read_to_string(path)?)
 }
 
-/// For files that steer Anna: nobody else may write them.
+/// For files that steer her: nobody else may write them.
 pub fn read_trusted(path: &Path) -> Result<String> {
     refuse_if(path, OTHERS_CAN_WRITE, "writable by others")?;
     Ok(fs::read_to_string(path)?)
@@ -78,7 +78,7 @@ mod tests {
 
     #[test]
     fn private_files_are_written_private_and_refused_when_they_are_not() {
-        let directory = std::env::temp_dir().join(format!("anna-fsutil-{}", std::process::id()));
+        let directory = std::env::temp_dir().join(format!("sous-chef-fsutil-{}", std::process::id()));
         let path = directory.join("nested/config.json");
 
         write_private(&path, "{}").unwrap();

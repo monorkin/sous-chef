@@ -1,4 +1,4 @@
-//! A circuit breaker for a service Anna can do without.
+//! A circuit breaker for a service she can do without.
 //!
 //! Jev makes her judgments fast, but Claude can make them too, so a Jev that
 //! is struggling should be left alone rather than waited on: every call that

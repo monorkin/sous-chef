@@ -1,4 +1,4 @@
-//! `anna source …`: looking at a source without acting on it.
+//! `sous-chef source …`: looking at a source without acting on it.
 
 use anyhow::{Context, Result};
 use std::sync::Arc;
@@ -12,7 +12,7 @@ use crate::source::{self, Position};
 
 const LONGEST_SHOWN: usize = 70;
 
-/// Calls the source's watch tool once and shows what Anna would make of the
+/// Calls the source's watch tool once and shows what she would make of the
 /// answer: which messages she finds, who she thinks sent them, and whether
 /// she listens to that person. Nothing is remembered and nobody is woken, so
 /// it is safe to run while the pointers are still being worked out.

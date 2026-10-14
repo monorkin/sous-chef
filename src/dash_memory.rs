@@ -1,6 +1,6 @@
 //! The dashboard's memory tab: every memory she has, archived ones dimmed,
 //! the picked one read in full beside the list, and archiving and bringing
-//! back from there the way `anna memory archive` and `unarchive` do.
+//! back from there the way `sous-chef memory archive` and `unarchive` do.
 
 use anyhow::Result;
 use katami::memory::Memory;
@@ -82,7 +82,7 @@ impl Memories {
 pub fn archive(id: &str) -> Result<String> {
     let memory = Memory::open(&katami::paths::memory_dir())?;
     let id = memory.resolve(id)?;
-    memory.archive(id, "archived from anna dash")?;
+    memory.archive(id, "archived from sous-chef dash")?;
     Ok(format!("Archived “{}”.", memory.get(id)?.title))
 }
 

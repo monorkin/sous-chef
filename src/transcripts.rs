@@ -1,4 +1,4 @@
-//! What was said in a thread or a hand, read back: `anna transcript`.
+//! What was said in a thread or a hand, read back: `sous-chef transcript`.
 //!
 //! Claude Code writes every session down as it goes, one JSON line per
 //! turn, under the config folder the session ran with. A thread's lives
@@ -65,7 +65,7 @@ pub fn list() -> Result<()> {
             println!("  {hand}  ({} round{}, {reviews} review{})", files.len() - reviews, if files.len() - reviews == 1 { "" } else { "s" }, if reviews == 1 { "" } else { "s" });
         }
     }
-    println!("\n`anna transcript <id>` shows one; any part of the id will do.");
+    println!("\n`sous-chef transcript <id>` shows one; any part of the id will do.");
     Ok(())
 }
 
@@ -78,7 +78,7 @@ pub fn show(id: &str) -> Result<()> {
         (Some(thread), _, _) => (format!("thread {thread}"), transcripts_under(&of_thread(&thread))),
         (None, Some(hand), _) => (format!("hand {hand}"), transcripts_under(&paths::hands_dir().join(hand))),
         (None, None, Some((hand, profile))) => (format!("hand {hand}, still working"), transcripts_under(&profile.join("projects"))),
-        (None, None, None) => bail!("nothing called {id}; `anna transcript` lists what there is"),
+        (None, None, None) => bail!("nothing called {id}; `sous-chef transcript` lists what there is"),
     };
     if transcripts.is_empty() {
         bail!("{what} has no transcript yet");
@@ -93,7 +93,7 @@ pub fn show(id: &str) -> Result<()> {
 }
 
 /// The last lines of a thread's newest transcript, rendered as `show`
-/// renders them, for `anna dash`.
+/// renders them, for `sous-chef dash`.
 pub fn tail_of_thread(thread: &str, lines: usize) -> Vec<String> {
     let newest = transcripts_under(&of_thread(thread))
         .into_iter()
@@ -110,7 +110,7 @@ fn tail_of(transcript: &Path, lines: usize) -> Vec<String> {
 }
 
 /// A hand that hasn't been discarded still has its transcript in its
-/// profile, under whichever Anna process is running it.
+/// profile, under whichever sous-chef process is running it.
 fn busy_hand(id: &str) -> Option<(String, PathBuf)> {
     for process in names_in(&paths::all_sessions_dir()) {
         for hand in names_in(&paths::all_sessions_dir().join(&process)) {
@@ -201,7 +201,8 @@ fn render_assistant(content: &Value, at: &str, out: &mut String) {
         match part["type"].as_str() {
             Some("text") => out.push_str(&format!("{at}  {}\n\n", shortened(part["text"].as_str().unwrap_or_default()))),
             Some("tool_use") => {
-                let name = part["name"].as_str().unwrap_or("?").trim_start_matches("mcp__anna__");
+                // Sessions from before the rename call them mcp__anna__
+                let name = part["name"].as_str().unwrap_or("?").trim_start_matches("mcp__sous-chef__").trim_start_matches("mcp__anna__");
                 out.push_str(&format!("{at}    → {name} {}\n", shortened(&arguments_of(&part["input"]))));
             }
             _ => {}
@@ -257,7 +258,7 @@ mod tests {
 
     #[test]
     fn the_tail_of_a_transcript_is_its_last_rendered_lines_without_blanks() {
-        let directory = std::env::temp_dir().join(format!("anna-tail-{}", std::process::id()));
+        let directory = std::env::temp_dir().join(format!("sous-chef-tail-{}", std::process::id()));
         fs::create_dir_all(&directory).unwrap();
         let transcript = directory.join("session.jsonl");
         let said = |minute: u32, text: &str| format!(r#"{{"type":"user","timestamp":"2026-09-22T04:{minute:02}:00.000Z","message":{{"content":"{text}"}}}}"#);

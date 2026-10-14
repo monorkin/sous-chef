@@ -47,26 +47,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "anna"
-version = "0.1.7"
-dependencies = [
- "anyhow",
- "ax",
- "chrono",
- "croner",
- "dirs",
- "katami",
- "libc",
- "ratatui",
- "rusqlite",
- "serde",
- "serde_json",
- "ureq",
- "usage-rs",
- "zip",
-]
-
-[[package]]
 name = "anstream"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2270,6 +2250,26 @@ name = "smallvec"
 version = "1.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba467056f1b547ed52077911161fc86985becbc60e8e1857c8a144dab0def891"
+
+[[package]]
+name = "sous-chef"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "ax",
+ "chrono",
+ "croner",
+ "dirs",
+ "katami",
+ "libc",
+ "ratatui",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "ureq",
+ "usage-rs",
+ "zip",
+]
 
 [[package]]
 name = "spm_precompiled"

@@ -119,7 +119,7 @@ fn worktree_style(_: &str) -> Style {
     Style::new().fg(Color::Magenta)
 }
 
-/// A span as a running Anna gives it — "16s", "58m", "1h 17m", "2d 3h" —
+/// A span as a running sous-chef gives it — "16s", "58m", "1h 17m", "2d 3h" —
 /// in whole minutes; None for anything else.
 fn minutes_in(span: &str) -> Option<u64> {
     if span.trim().is_empty() {

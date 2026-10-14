@@ -1,16 +1,16 @@
-//! `anna upgrade`: move a mise install to the latest release.
+//! `sous-chef upgrade`: move a mise install to the latest release.
 //!
-//! Anna ships through mise, so this handles exactly that install method: it
+//! sous-chef ships through mise, so this handles exactly that install method: it
 //! checks GitHub for a newer release and, when the running binary is one mise
 //! put there, runs `mise use` to pull the new version and confirms the swap
 //! landed. Any other install (a hand-copied binary, a `make install` build) is
 //! told how to update itself rather than being touched. Upgrades only ever
 //! move forward.
 //!
-//! Her service starts the binary by its path, which carries the version, so
-//! the unit is pointed at the new one. She keeps running the old one until
-//! she is restarted: a restart stops whatever her hands are doing, and that
-//! is for the person to time.
+//! The service starts the binary by its path, which carries the version, so
+//! the unit is pointed at the new one. The old one keeps running until it is
+//! restarted: a restart stops whatever the hands are doing, and that is for
+//! the person to time.
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
@@ -22,9 +22,9 @@ use crate::control;
 use crate::service;
 
 const CURRENT: &str = env!("CARGO_PKG_VERSION");
-const REPO: &str = "monorkin/anna";
-const MISE_TOOL: &str = "github:monorkin/anna";
-const USER_AGENT: &str = concat!("anna/", env!("CARGO_PKG_VERSION"));
+const REPO: &str = "monorkin/sous-chef";
+const MISE_TOOL: &str = "github:monorkin/sous-chef";
+const USER_AGENT: &str = concat!("sous-chef/", env!("CARGO_PKG_VERSION"));
 
 pub fn run(requested: Option<&str>) -> Result<()> {
     let requested = requested.map(|it| it.trim_start_matches('v'));
@@ -78,7 +78,7 @@ fn fetch_release(path: &str) -> Result<String> {
 }
 
 /// A dotted version compare that keeps a prerelease (`0.2.0-rc.1`) below its
-/// release. Enough for the tags Anna cuts; not a full semver ordering.
+/// release. Enough for the tags sous-chef cuts; not a full semver ordering.
 fn is_newer(candidate: &str, current: &str) -> bool {
     version_key(candidate) > version_key(current)
 }
@@ -96,7 +96,7 @@ struct MiseInstall {
 }
 
 /// The running binary is a mise install when it sits in mise's release-backend
-/// layout: `…/installs/github-monorkin-anna/<version>/anna`. When it is, the
+/// layout: `…/installs/github-monorkin-sous-chef/<version>/sous-chef`. When it is, the
 /// config that selected it is resolved so the upgrade edits that file rather
 /// than guessing at the global config.
 fn mise_install() -> Result<Option<MiseInstall>> {
@@ -116,7 +116,7 @@ fn mise_install() -> Result<Option<MiseInstall>> {
 
 fn is_mise_layout(exe: &Path) -> bool {
     let components: Vec<&str> = exe.components().filter_map(|it| it.as_os_str().to_str()).collect();
-    components.windows(2).any(|pair| pair == ["installs", "github-monorkin-anna"])
+    components.windows(2).any(|pair| pair == ["installs", "github-monorkin-sous-chef"])
 }
 
 fn mise_config_path(mise: &Path) -> Option<String> {
@@ -163,7 +163,7 @@ fn upgrade_via_mise(install: &MiseInstall, latest: &str) -> Result<PathBuf> {
 /// version we asked for — mise can succeed while an older binary stays active.
 fn confirm(install: &MiseInstall, latest: &str) -> Result<PathBuf> {
     let path = Command::new(&install.mise)
-        .args(["which", "anna"])
+        .args(["which", "sous-chef"])
         .output()
         .ok()
         .filter(|it| it.status.success())
@@ -171,7 +171,7 @@ fn confirm(install: &MiseInstall, latest: &str) -> Result<PathBuf> {
         .filter(|it| !it.is_empty());
 
     let Some(path) = path else {
-        bail!("mise reported success but the new binary couldn't be located — run `anna --version` to confirm");
+        bail!("mise reported success but the new binary couldn't be located — run `sous-chef --version` to confirm");
     };
 
     let reported = Command::new(&path)
@@ -187,20 +187,20 @@ fn confirm(install: &MiseInstall, latest: &str) -> Result<PathBuf> {
             Ok(PathBuf::from(path))
         }
         Some(version) => bail!(
-            "mise finished but anna still reports {version} (expected {latest}) — retry: {}",
+            "mise finished but sous-chef still reports {version} (expected {latest}) — retry: {}",
             use_hint(install, latest)
         ),
-        None => bail!("mise finished but the new binary's version couldn't be read — run `anna --version` to confirm"),
+        None => bail!("mise finished but the new binary's version couldn't be read — run `sous-chef --version` to confirm"),
     }
 }
 
 fn point_the_service_at(binary: &Path) -> Result<()> {
     if service::installed() {
         service::point_at(&Config::load()?.name, binary)?;
-        println!("Her service now starts {}.", binary.display());
+        println!("The service now starts {}.", binary.display());
     }
     if control::is_running() {
-        println!("She is still running {CURRENT}. `anna restart` puts her on the new one; it stops whatever her hands are doing.");
+        println!("sous-chef {CURRENT} is still running. `sous-chef restart` puts it on the new one; it stops whatever the hands are doing.");
     }
     Ok(())
 }
@@ -237,8 +237,8 @@ mod tests {
 
     #[test]
     fn mise_layout_only_matches_our_install_tree() {
-        assert!(is_mise_layout(Path::new("/home/x/.local/share/mise/installs/github-monorkin-anna/0.1.0/anna")));
-        assert!(!is_mise_layout(Path::new("/usr/bin/anna")));
+        assert!(is_mise_layout(Path::new("/home/x/.local/share/mise/installs/github-monorkin-sous-chef/0.1.0/sous-chef")));
+        assert!(!is_mise_layout(Path::new("/usr/bin/sous-chef")));
         assert!(!is_mise_layout(Path::new("/home/x/.local/share/mise/installs/github-monorkin-katami/0.3.0/katami")));
     }
 }

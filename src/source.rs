@@ -203,7 +203,7 @@ impl Seen {
 
     /// Whether this message is one to act on. Everything found on the very
     /// first look at a source is only remembered: that is the backlog from
-    /// before Anna was listening, not something anyone asked her.
+    /// before she was listening, not something anyone asked her.
     pub fn is_new(&mut self, id: &str) -> bool {
         self.ids.insert(id.to_string()) && !self.first_look
     }
@@ -468,7 +468,7 @@ mod tests {
         assert_eq!(message.conversation, "3");
         assert_eq!(message.text, "mentioned\n\ncomment_created\n\n2\n\n3\n\n{\"excerpt\":\"Can you look?\"}");
 
-        let path = std::env::temp_dir().join(format!("anna-position-{}/position", std::process::id()));
+        let path = std::env::temp_dir().join(format!("sous-chef-position-{}/position", std::process::id()));
         let position = Position { path: path.clone(), cursor: inbox.cursor.clone().unwrap() };
         assert_eq!(position.in_arguments(&inbox.watch.arguments), inbox.watch.arguments, "the first call goes out as written: from now");
 
@@ -506,7 +506,7 @@ mod tests {
 
     #[test]
     fn the_backlog_is_remembered_but_only_later_messages_are_new() {
-        let path = std::env::temp_dir().join(format!("anna-seen-{}/seen.json", std::process::id()));
+        let path = std::env::temp_dir().join(format!("sous-chef-seen-{}/seen.json", std::process::id()));
         let mut seen = Seen::load_from(path.clone());
         assert!(!seen.is_new("old-1"));
         seen.save().unwrap();

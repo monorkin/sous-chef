@@ -58,7 +58,7 @@ impl Server {
             json!({
                 "protocolVersion": "2025-06-18",
                 "capabilities": {},
-                "clientInfo": { "name": "anna", "version": env!("CARGO_PKG_VERSION") },
+                "clientInfo": { "name": "sous-chef", "version": env!("CARGO_PKG_VERSION") },
             }),
         )?;
         server.send(&json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }))?;

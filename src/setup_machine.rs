@@ -1,4 +1,4 @@
-//! What `anna setup` does to the real machine: the config, the keyring,
+//! What `sous-chef setup` does to the real machine: the config, the keyring,
 //! systemd, and the tools' own command lines.
 
 use anyhow::{Context, Result, bail};

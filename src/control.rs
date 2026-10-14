@@ -1,15 +1,15 @@
-//! The control socket: how a running Anna is told things from outside.
+//! The control socket: how a running sous-chef is told things from outside.
 //!
 //! One request per connection, one line of JSON each way. `stop` and `status`
 //! are what they say. `poke` is the answer to polling: MCP servers can't say
 //! that something arrived, so anything that can — a webhook receiver, a mail
-//! filter, cron, a person — runs `anna poke` and she checks her sources now
+//! filter, cron, a person — runs `sous-chef poke` and she checks her sources now
 //! instead of at the next tick. A poke carries no message and no sender; she
 //! still reads what happened from the source itself, so being able to poke
 //! her is not being able to speak as someone.
 //!
 //! The socket lives in the runtime directory, which only its owner can enter.
-//! It doubles as the lock that keeps a second Anna from starting.
+//! It doubles as the lock that keeps a second sous-chef from starting.
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
@@ -33,7 +33,7 @@ pub trait Controls: Send + Sync {
     fn stop(&self);
 }
 
-/// Being the one Anna here. Taken before anything is started or swept, and
+/// Being the one sous-chef here. Taken before anything is started or swept, and
 /// held by the kernel for as long as the process lives, so two that start
 /// at the same moment can't both win and a crash leaves nothing to clean up.
 pub struct OnlyOne {
@@ -41,7 +41,7 @@ pub struct OnlyOne {
 }
 
 pub fn be_the_only_one() -> Result<OnlyOne> {
-    let path = paths::runtime_dir().join("anna.lock");
+    let path = paths::runtime_dir().join("sous-chef.lock");
     paths::make_private_dir(&paths::runtime_dir())?;
     let lock = fs::OpenOptions::new()
         .write(true)
@@ -54,7 +54,7 @@ pub fn be_the_only_one() -> Result<OnlyOne> {
     if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
         Ok(OnlyOne { _lock: lock })
     } else {
-        bail!("Anna is already running")
+        bail!("sous-chef is already running")
     }
 }
 
@@ -111,19 +111,19 @@ fn answer(connection: UnixStream, controls: &dyn Controls) -> Result<()> {
     Ok(())
 }
 
-/// Asks the running Anna something. The error says which it was: nobody
-/// listening, or her listening and not answering — a database stuck behind
-/// a slow disk looked exactly like her being gone.
+/// Asks the running sous-chef something. The error says which it was: nobody
+/// listening, or it listening and not answering — a database stuck behind
+/// a slow disk looked exactly like it being gone.
 pub fn ask(request: Value) -> Result<Value> {
-    let mut connection = UnixStream::connect(paths::control_socket()).context("Anna isn't running")?;
+    let mut connection = UnixStream::connect(paths::control_socket()).context("sous-chef isn't running")?;
     connection.set_read_timeout(Some(Duration::from_secs(SECONDS_TO_ANSWER)))?;
     writeln!(connection, "{request}")?;
 
     let mut line = String::new();
     BufReader::new(connection)
         .read_line(&mut line)
-        .with_context(|| format!("Anna is running but didn't answer within {SECONDS_TO_ANSWER} seconds"))?;
-    serde_json::from_str(&line).context("Anna is running but gave no answer")
+        .with_context(|| format!("sous-chef is running but didn't answer within {SECONDS_TO_ANSWER} seconds"))?;
+    serde_json::from_str(&line).context("sous-chef is running but gave no answer")
 }
 
 pub fn is_running() -> bool {

@@ -1,4 +1,4 @@
-//! `anna mcp …`: which MCP servers Anna has, and which of their arguments
+//! `sous-chef mcp …`: which MCP servers she has, and which of their arguments
 //! carry prose for people.
 
 use anyhow::{Context, Result, bail};
@@ -19,11 +19,11 @@ pub fn add(name: &str, command: &[String], trusted_only: bool) -> Result<()> {
     Ok(())
 }
 
-/// She reads her config when she starts. Saying "removed" while the running
-/// Anna goes on offering the server would be a lie about what is protected.
+/// It reads its config when it starts. Saying "removed" while the running
+/// sous-chef goes on offering the server would be a lie about what is protected.
 fn say_if_she_has_to_restart() {
     if control::is_running() {
-        println!("Anna is running with the config she started with. `anna stop` and `anna start` for this to take effect.");
+        println!("sous-chef is running with the config it started with. `sous-chef stop` and `sous-chef start` for this to take effect.");
     }
 }
 
@@ -73,7 +73,7 @@ pub fn register(name: &str, mut settings: McpServer) -> Result<()> {
 pub fn list() -> Result<()> {
     let config = Config::load()?;
     if config.mcp_servers.is_empty() {
-        println!("No MCP servers yet. Add one with: anna mcp add basecamp -- basecamp mcp");
+        println!("No MCP servers yet. Add one with: sous-chef mcp add basecamp -- basecamp mcp");
     }
     for (name, settings) in &config.mcp_servers {
         list_one(name, settings)?;

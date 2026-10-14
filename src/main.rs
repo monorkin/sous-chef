@@ -30,6 +30,7 @@ mod mcp;
 mod mcp_cli;
 mod mcp_server;
 mod memory_tools;
+mod old_name;
 mod paths;
 mod prompt;
 mod proxy;
@@ -66,9 +67,9 @@ use usage::{Cli, Subcommands};
 use crate::conversation::{Standing, Terminal};
 use crate::runtime::Runtime;
 
-/// A self-governing agent you work with like a colleague
+/// The harness for a self-governing agent you work with like a colleague
 #[derive(Cli)]
-#[usage(bin = "anna", version, unknown_flags = "error")]
+#[usage(bin = "sous-chef", version, unknown_flags = "error")]
 struct Cli {
     #[usage(subcommand)]
     command: Command,
@@ -83,37 +84,37 @@ enum Command {
         /// Target a specific release instead of the latest
         version: Option<String>,
     },
-    /// Bring Anna up in the background, through systemd when the service is installed
+    /// Bring sous-chef up in the background, through systemd when the service is installed
     Start,
-    /// Stop Anna and everything she started
+    /// Stop sous-chef and everything it started
     Stop,
-    /// Stop and start her again; she picks up every turn she was in the middle of
+    /// Stop and start it again; she picks up every turn she was in the middle of
     Restart,
-    /// Show whether Anna is running and what she's listening on
+    /// Show whether sous-chef is running and what it's listening on
     Status,
     /// A dashboard in this terminal: her accounts, memory and work, what's going on, and a line to tell a thread something
     Dash,
-    /// Have Anna check a source now instead of at the next tick; all of them when none is named
+    /// Have sous-chef check a source now instead of at the next tick; all of them when none is named
     Poke { source: Option<String> },
-    /// Run Anna in this terminal: listen on every source until stopped
+    /// Run sous-chef in this terminal: listen on every source until stopped
     Run,
-    /// Write everything that makes this Anna this Anna to a zip; safe while she runs
+    /// Write everything that makes this sous-chef what it is to a zip; safe while it runs
     Backup {
-        /// Where to write the zip; defaults to anna-backup-<time>.zip here
+        /// Where to write the zip; defaults to sous-chef-backup-<time>.zip here
         #[usage(long)]
         to: Option<std::path::PathBuf>,
         /// Leave her tokens and logins out of the zip: Jev's key, the Claude accounts, her tools' own config
         #[usage(long)]
         without_secrets: bool,
     },
-    /// Bring an Anna back from a backup zip; she has to be stopped
+    /// Bring a sous-chef back from a backup zip; it has to be stopped
     Restore {
         path: std::path::PathBuf,
-        /// Replace the Anna that is already set up here
+        /// Replace the sous-chef that is already set up here
         #[usage(long)]
         force: bool,
     },
-    /// Talk to Anna from this terminal
+    /// Talk to the agent from this terminal
     Chat {
         message: String,
         /// Which terminal conversation this belongs to
@@ -122,7 +123,7 @@ enum Command {
     },
     /// Say something straight to one of her threads, with your standing; any part of its name will do
     Tell { thread: String, message: String },
-    /// Show what Anna has been doing
+    /// Show what the agent has been doing
     Log {
         /// Keep printing as things happen
         #[usage(short = 'f', long)]
@@ -133,7 +134,7 @@ enum Command {
     },
     /// Read what was said in a thread or a hand; lists them when no id is given
     Transcript { id: Option<String> },
-    /// Manage the MCP servers Anna works through
+    /// Manage the MCP servers the agent works through
     Mcp {
         #[usage(subcommand)]
         command: McpCommand,
@@ -143,22 +144,22 @@ enum Command {
         #[usage(subcommand)]
         command: SkillCommand,
     },
-    /// Look at the places Anna listens
+    /// Look at the places the agent listens
     Source {
         #[usage(subcommand)]
         command: SourceCommand,
     },
-    /// Inspect and manage what Anna remembers
+    /// Inspect and manage what the agent remembers
     Memory {
         #[usage(subcommand)]
         command: katami::cli::MemoryCommand,
     },
-    /// Manage the Claude subscriptions Anna works with
+    /// Manage the Claude subscriptions the agent works with
     Claude {
         #[usage(subcommand)]
         command: ClaudeCommand,
     },
-    /// Anna's own GitHub login, kept apart from yours
+    /// The agent's own GitHub login, kept apart from yours
     Github {
         #[usage(subcommand)]
         command: GithubCommand,
@@ -167,13 +168,13 @@ enum Command {
 
 #[derive(Subcommands)]
 enum SourceCommand {
-    /// Read a source once and show what Anna would make of it, without acting on anything
+    /// Read a source once and show what the agent would make of it, without acting on anything
     Check { name: String },
 }
 
 #[derive(Subcommands)]
 enum GithubCommand {
-    /// Log Anna's own GitHub folder in, in the browser; her turns push and open pull requests as that account
+    /// Log the agent's own GitHub folder in, in the browser; her turns push and open pull requests as that account
     Login {
         /// The email that account uses, so commits are credited to it; kept from last time when left out
         #[usage(long)]
@@ -183,19 +184,19 @@ enum GithubCommand {
 
 #[derive(Subcommands)]
 enum ClaudeCommand {
-    /// Log Anna's own Claude folder in, in the browser; then `account add` keeps that login
+    /// Log the agent's own Claude folder in, in the browser; then `account add` keeps that login
     Login,
     /// Manage the accounts in the rotation
     Account {
         #[usage(subcommand)]
         command: ax::cli::AccountCommand,
     },
-    /// Make a stored account the one Anna works as
+    /// Make a stored account the one the agent works as
     Switch {
         /// Account number, email, or alias
         account: String,
     },
-    /// Who Anna is logged in as right now
+    /// Who the agent is logged in as right now
     Whoami,
 }
 
@@ -214,7 +215,7 @@ enum McpCommand {
     /// Add a server, or accept the changed tools of one already added
     Add {
         name: String,
-        /// The server acts as you, not as Anna: only turns on a trusted person's word get it
+        /// The server acts as you, not as the agent: only turns on a trusted person's word get it
         #[usage(long)]
         as_me: bool,
         /// The command that starts the server
@@ -234,13 +235,16 @@ enum McpCommand {
 }
 
 fn main() {
+    // Before anything makes the new folders, or the old ones would be left
+    // behind for good
+    old_name::move_over_if_left_behind();
     paths::claim_own_state();
 
-    // Rust ignores SIGPIPE, which turns `anna log | head` into a panic, so
-    // the commands that print and leave get the usual behaviour back. The
+    // Rust ignores SIGPIPE, which turns `sous-chef log | head` into a panic,
+    // so the commands that print and leave get the usual behaviour back. The
     // ones that talk to MCP servers don't: there a closed pipe has to come
-    // back as an error, or a server that died takes the whole of Anna with
-    // it at the next write.
+    // back as an error, or a server that died takes the whole of sous-chef
+    // with it at the next write.
     let talks_to_servers = matches!(std::env::args().nth(1).as_deref(), Some("run" | "chat"));
     if !talks_to_servers {
         unsafe {
@@ -260,7 +264,8 @@ fn main() {
 
 /// katami runs its own executable for these: the hooks it registers with
 /// claude, and the reviews and curation it spawns in the background. Inside
-/// Anna that executable is Anna, so she hands them straight to katami.
+/// sous-chef that executable is sous-chef, so it hands them straight to
+/// katami.
 const KATAMI_RUNS_ITSELF_AS: [&str; 3] = ["hook", "review", "curate"];
 
 fn run(cli: Cli) -> Result<()> {
@@ -277,7 +282,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Backup { to, without_secrets } => backup::backup(to, without_secrets),
         Command::Restore { path, force } => backup::restore(&path, force),
         Command::Chat { message, conversation } => {
-            // Whoever is at this terminal can already do anything Anna can
+            // Whoever is at this terminal can already do anything the agent can
             let runtime = Arc::new(Runtime::start()?);
             thread::wake(&runtime, Arc::new(Terminal::new(&conversation)), Standing::Trusted, &message)?;
             runtime.wait_until_settled();

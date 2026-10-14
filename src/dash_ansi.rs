@@ -1,4 +1,4 @@
-//! Text coloured for a terminal, as `anna log` and ax's usage bars write it,
+//! Text coloured for a terminal, as `sous-chef log` and ax's usage bars write it,
 //! turned into what ratatui draws, so the dashboard shows their colours
 //! without drawing them a second time. Only the SGR codes they use are
 //! known; any other escape is dropped and its text kept.

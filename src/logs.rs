@@ -1,6 +1,6 @@
-//! The one record of what Anna did: every thread woken, hand started, grant
+//! The one record of what she did: every thread woken, hand started, grant
 //! written, and request refused is a line of JSON in a single append-only
-//! file. `anna log` reads it back. Logging never fails loudly — a full disk
+//! file. `sous-chef log` reads it back. Logging never fails loudly — a full disk
 //! shouldn't take a thread down with it.
 
 use serde_json::{Value, json};
@@ -35,7 +35,7 @@ pub fn event(name: &str, details: Value) {
     }
 }
 
-/// The newest lines of the log, each as `anna log` shows it in colour, the
+/// The newest lines of the log, each as `sous-chef log` shows it in colour, the
 /// newest last.
 pub fn newest_styled(count: usize) -> Vec<String> {
     let look = Look { styled: true, only: None };
@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn the_end_of_a_file_starts_at_a_whole_line() {
-        let directory = std::env::temp_dir().join(format!("anna-end-of-{}", std::process::id()));
+        let directory = std::env::temp_dir().join(format!("sous-chef-end-of-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         let file = directory.join("log.jsonl");
         std::fs::write(&file, "first line\nsecond\nthird\n").unwrap();

@@ -252,9 +252,9 @@ mod tests {
 
     #[test]
     fn messages_only_go_to_other_threads_that_are_on_the_board() {
-        let directory = std::env::temp_dir().join(format!("anna-tell-thread-{}", std::process::id()));
+        let directory = std::env::temp_dir().join(format!("sous-chef-tell-thread-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
-        let database = directory.join("anna.db");
+        let database = directory.join("sous-chef.db");
         let tell = TellThread { database: database.clone(), thread: "basecamp-card-1".to_string(), standing: Standing::Trusted };
 
         let to_nobody = tell.call(&json!({ "thread": "basecamp-card-9", "message": "Same bug." })).unwrap_err();
@@ -279,9 +279,9 @@ mod tests {
 
     #[test]
     fn two_threads_find_each_other_on_the_board() {
-        let directory = std::env::temp_dir().join(format!("anna-work-tools-{}", std::process::id()));
+        let directory = std::env::temp_dir().join(format!("sous-chef-work-tools-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
-        let database = directory.join("anna.db");
+        let database = directory.join("sous-chef.db");
 
         let judge = Arc::new(crate::judge::answering(&[0.0, 0.0, 0.95]));
         let first = ClaimWork { database: database.clone(), origin: origin("card-1"), thread: "basecamp-card-1".to_string(), judge: judge.clone() };

@@ -1,10 +1,10 @@
-//! What Anna has to remember to run, as opposed to what she has learned:
+//! What sous-chef has to remember to run, as opposed to what she has learned:
 //! the schedules her threads set up, what each thread is working on, and the
 //! messages they send each other. One SQLite file, so a restart loses
-//! nothing and the next thing she needs to keep is a table away.
+//! nothing and the next thing it needs to keep is a table away.
 //!
 //! This is not katami's memory. That holds durable facts and is shared with
-//! every other session on the machine; this holds Anna's own moving parts.
+//! every other session on the machine; this holds sous-chef's own moving parts.
 //!
 //! The schema moves forward through numbered migrations keyed on
 //! `user_version`. Every thread and the scheduler open their own connection;
@@ -92,8 +92,8 @@ const MIGRATIONS: [&str; 8] = ["
     );
 "];
 
-/// A turn that was asked for and not yet finished: what a stopped Anna
-/// picks up again when she starts.
+/// A turn that was asked for and not yet finished: what a stopped sous-chef
+/// picks up again when it starts.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PendingTurn {
     pub id: i64,
@@ -147,7 +147,7 @@ pub struct Mail {
     pub body: String,
     /// Whether it was sent from a turn a trusted person started. That turn
     /// could have done the work itself, so its word carries to the thread
-    /// that owns the work — the same Anna, reading with the same care.
+    /// that owns the work — the same agent, reading with the same care.
     pub trusted: bool,
 }
 
@@ -195,8 +195,8 @@ impl Store {
     /// transaction takes the write lock up front: two processes opening a new
     /// database at once would otherwise both see version 0, and the second
     /// would fail on tables the first had just made. A database from a newer
-    /// Anna is refused rather than written to with an old idea of what is in
-    /// it.
+    /// sous-chef is refused rather than written to with an old idea of what
+    /// is in it.
     fn migrate(&self) -> Result<()> {
         if self.version()? == MIGRATIONS.len() {
             return Ok(());
@@ -219,7 +219,7 @@ impl Store {
     fn migrate_from_where_it_is(&self) -> Result<()> {
         let version = self.version()?;
         if version > MIGRATIONS.len() {
-            bail!("the database is from a newer Anna (version {version}, and this one knows {}); update her before starting", MIGRATIONS.len());
+            bail!("the database is from a newer sous-chef (version {version}, and this one knows {}); update it before starting", MIGRATIONS.len());
         }
         for (index, migration) in MIGRATIONS.iter().enumerate().skip(version) {
             self.connection.execute_batch(&format!("{migration} PRAGMA user_version = {};", index + 1))?;
@@ -524,9 +524,9 @@ mod tests {
     use super::*;
 
     fn store(name: &str) -> (Store, std::path::PathBuf) {
-        let directory = std::env::temp_dir().join(format!("anna-store-{name}-{}", std::process::id()));
+        let directory = std::env::temp_dir().join(format!("sous-chef-store-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
-        (Store::open_at(&directory.join("anna.db")).unwrap(), directory)
+        (Store::open_at(&directory.join("sous-chef.db")).unwrap(), directory)
     }
 
     fn origin(conversation: &str) -> Origin {
@@ -556,10 +556,10 @@ mod tests {
         let (store, directory) = store("locked");
         store.keep_turn(&origin("card-1"), true, "fix the login", "2026-10-01T09:00:00Z").unwrap();
 
-        let writer = Connection::open(directory.join("anna.db")).unwrap();
+        let writer = Connection::open(directory.join("sous-chef.db")).unwrap();
         writer.execute_batch("BEGIN IMMEDIATE").unwrap();
         let began = std::time::Instant::now();
-        let reader = Store::open_at(&directory.join("anna.db")).unwrap();
+        let reader = Store::open_at(&directory.join("sous-chef.db")).unwrap();
         assert_eq!(reader.turns_left().unwrap().len(), 1);
         assert!(began.elapsed() < std::time::Duration::from_secs(2), "it waited on the write: {:?}", began.elapsed());
 
@@ -603,7 +603,7 @@ mod tests {
         assert_eq!(store.schedules_of(&origin("card-2")).unwrap()[0].task, "Remind Marta");
 
         drop(store);
-        let reopened = Store::open_at(&directory.join("anna.db")).unwrap();
+        let reopened = Store::open_at(&directory.join("sous-chef.db")).unwrap();
         assert_eq!(reopened.schedules_of(&origin("card-2")).unwrap().len(), 1);
         std::fs::remove_dir_all(directory).unwrap();
     }

@@ -1,5 +1,5 @@
-//! `anna backup` and `anna restore`: everything that makes this Anna this
-//! Anna, in one zip.
+//! `sous-chef backup` and `sous-chef restore`: everything that makes this
+//! sous-chef what it is, in one zip.
 //!
 //! What goes in: the config with her style and CLAUDE.md, her tokens and the
 //! Claude accounts she rotates between, the Claude Code folder she works
@@ -68,7 +68,7 @@ const CLAUDE_CODES_OWN: [&str; 14] = [
 const CLAUDE_LOGIN: &str = ".credentials.json";
 
 pub fn backup(to: Option<PathBuf>, without_secrets: bool) -> Result<()> {
-    let path = to.unwrap_or_else(|| PathBuf::from(format!("anna-backup-{}.zip", clock::timestamp().replace(':', ""))));
+    let path = to.unwrap_or_else(|| PathBuf::from(format!("sous-chef-backup-{}.zip", clock::timestamp().replace(':', ""))));
     let file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -93,7 +93,7 @@ pub fn backup(to: Option<PathBuf>, without_secrets: bool) -> Result<()> {
 
     println!("Backed up {entries} files to {}.", path.display());
     if !without_secrets {
-        println!("It holds Anna's tokens in the clear. Keep it somewhere only you can read.");
+        println!("It holds the agent's tokens in the clear. Keep it somewhere only you can read.");
     }
     Ok(())
 }
@@ -101,7 +101,7 @@ pub fn backup(to: Option<PathBuf>, without_secrets: bool) -> Result<()> {
 fn manifest(without_secrets: bool) -> Value {
     json!({
         "format": 1,
-        "anna": env!("CARGO_PKG_VERSION"),
+        "sous-chef": env!("CARGO_PKG_VERSION"),
         "created": clock::timestamp(),
         "secrets": !without_secrets,
         "service": service::installed(),
@@ -171,7 +171,7 @@ impl Archive {
         if database.exists() {
             let snapshot = staging("snapshot.db")?;
             Store::open_at(&database)?.snapshot_to(&snapshot)?;
-            let added = self.add_file_if_there(&snapshot, "data/anna.db");
+            let added = self.add_file_if_there(&snapshot, &format!("data/{}", paths::DATABASE));
             let _ = fs::remove_file(&snapshot);
             added?;
         }
@@ -251,22 +251,22 @@ impl Archive {
 
 pub fn restore(path: &Path, force: bool) -> Result<()> {
     if control::is_running() {
-        bail!("Anna is running; `anna stop` first, then restore");
+        bail!("sous-chef is running; `sous-chef stop` first, then restore");
     }
     let already_here = paths::config_dir().join("config.json").exists() || paths::database().exists();
     if already_here && !force {
-        bail!("there is already an Anna set up here; pass --force to replace her with the backup");
+        bail!("there is already a sous-chef set up here; pass --force to replace it with the backup");
     }
 
     let file = File::open(path).with_context(|| format!("could not open {}", path.display()))?;
     let mut zip = ZipArchive::new(file).context("that is not a zip file")?;
-    let manifest: Value = serde_json::from_slice(&contents_of(&mut zip, MANIFEST).context("that zip is not an Anna backup")?)?;
+    let manifest: Value = serde_json::from_slice(&contents_of(&mut zip, MANIFEST).context("that zip is not a sous-chef backup")?)?;
     if manifest["format"] != json!(1) {
-        bail!("that backup is in a format this Anna doesn't know");
+        bail!("that backup is in a format this sous-chef doesn't know");
     }
 
     // Everything is looked at before anything is written, so a backup that
-    // is going to be refused is refused while the Anna here is still whole
+    // is going to be refused is refused while the sous-chef here is still whole
     let names: Vec<String> = (0..zip.len()).map(|index| Ok(zip.by_index(index)?.name().to_string())).collect::<Result<_>>()?;
     for name in &names {
         if let Some(destination) = destination_of(name)? {
@@ -309,7 +309,7 @@ pub fn restore(path: &Path, force: bool) -> Result<()> {
         service::install(&config::Config::load()?.name, true)?;
         println!("She ran as a service where the backup was made, and does here too.");
     }
-    println!("`anna start` brings her back up.");
+    println!("`sous-chef start` brings it back up.");
     Ok(())
 }
 
@@ -319,8 +319,8 @@ fn contents_of(zip: &mut ZipArchive<File>, name: &str) -> Result<Vec<u8>> {
     Ok(contents)
 }
 
-/// Where an entry goes, or nowhere for the manifest and anything this Anna
-/// doesn't recognize. An entry that tries to climb out of its folder is an
+/// Where an entry goes, or nowhere for the manifest and anything this
+/// sous-chef doesn't recognize. An entry that tries to climb out of its folder is an
 /// error: a backup is a file someone can hand you.
 fn destination_of(name: &str) -> Result<Option<PathBuf>> {
     let path = Path::new(name);
@@ -331,6 +331,8 @@ fn destination_of(name: &str) -> Result<Option<PathBuf>> {
     let mut parts = path.components().map(|it| it.as_os_str().to_string_lossy().into_owned());
     let destination = match parts.next().as_deref() {
         Some("config") => Some(paths::config_dir().join(parts.collect::<PathBuf>())),
+        // A backup made while sous-chef was still called anna
+        Some("data") if name == "data/anna.db" => Some(paths::database()),
         Some("data") => Some(paths::data_dir().join(parts.collect::<PathBuf>())),
         Some("claude") => Some(paths::claude_config_home().join(parts.collect::<PathBuf>())),
         Some("transcripts") => parts
@@ -357,7 +359,7 @@ fn is_a_root_of_hers(place: &Path) -> bool {
     place == paths::config_dir() || place == paths::data_dir() || place == paths::claude_config_home()
 }
 
-/// `--force` replaces the Anna that is here, so what the backup may not
+/// `--force` replaces the sous-chef that is here, so what the backup may not
 /// hold must not be left over from her: the old personality, threads the
 /// backup never had, what her sources had already seen. An old write-ahead
 /// log would be replayed over the restored database.
@@ -365,8 +367,8 @@ fn make_room_for_the_backup() -> Result<()> {
     for name in CONFIG_FILES {
         remove_if_there(&paths::config_dir().join(name))?;
     }
-    for sidecar in ["anna.db", "anna.db-wal", "anna.db-shm"] {
-        remove_if_there(&paths::data_dir().join(sidecar))?;
+    for suffix in ["", "-wal", "-shm"] {
+        remove_if_there(&paths::data_dir().join(format!("{}{suffix}", paths::DATABASE)))?;
     }
     for folder in ["threads", "sources"] {
         match fs::remove_dir_all(paths::data_dir().join(folder)) {

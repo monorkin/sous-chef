@@ -1,4 +1,4 @@
-//! A conversation is wherever someone is talking to Anna: a todo's comments,
+//! A conversation is wherever someone is talking to her: a todo's comments,
 //! an email thread, a terminal. A thread only knows how to say something back
 //! into it; where that lands is the conversation's business.
 

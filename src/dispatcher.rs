@@ -1,8 +1,8 @@
-//! `anna run`: listen on every source and wake the right thread for every
+//! `sous-chef run`: listen on every source and wake the right thread for every
 //! message.
 //!
 //! No model decides who gets heard. Who sent a message comes from the
-//! source's own data, never from the text, and whether Anna listens to them
+//! source's own data, never from the text, and whether she listens to them
 //! is a lookup in the config. Text from someone she listens to is still
 //! untrusted — the judge screens it before a thread, which is not sandboxed,
 //! reads it.
@@ -78,13 +78,13 @@ pub fn run() -> Result<()> {
     if let Err(error) = workshop::tell_of_hands_a_restart_stopped(&runtime) {
         logs::event("hands.not_told", json!({ "error": format!("{error:#}") }));
     }
-    logs::event("anna.listening", json!({ "sources": runtime.config.sources.keys().collect::<Vec<_>>() }));
+    logs::event("sous-chef.listening", json!({ "sources": runtime.config.sources.keys().collect::<Vec<_>>() }));
     loop {
         os_thread::park();
     }
 }
 
-/// What the control socket can ask of a running Anna.
+/// What the control socket can ask of a running sous-chef.
 struct Running {
     since: String,
     pokes: Mutex<HashMap<String, Sender<()>>>,
@@ -192,7 +192,7 @@ impl Controls for Running {
 const FROM_THE_TERMINAL: &str = "One of the people you take direction from says this to you directly, from the terminal of the machine you run on:\n\n";
 
 /// A thread by its name on the board, or by any part of it that names only
-/// one — the way `anna log --only` takes them.
+/// one — the way `sous-chef log --only` takes them.
 fn thread_on_the_board(store: &Store, named: &str) -> Result<Origin> {
     let matching = store.threads_named(named)?;
     match matching.as_slice() {
@@ -202,15 +202,15 @@ fn thread_on_the_board(store: &Store, named: &str) -> Result<Origin> {
     }
 }
 
-/// Stopping takes everything Anna started with her: threads, hands,
+/// Stopping takes everything sous-chef started with it: threads, hands,
 /// reviewers, and whatever those started. SIGINT and SIGTERM end the same
-/// way, so ctrl+c, `anna stop` and `systemctl stop` all leave nothing behind.
-/// Every thread still cached is compacted before she goes; nothing new
+/// way, so ctrl+c, `sous-chef stop` and `systemctl stop` all leave nothing
+/// behind. Every thread still cached is compacted before it goes; nothing new
 /// starts meanwhile, and the turns that were stopped stay kept, to be asked
-/// again when she is back.
+/// again when it is back.
 fn stop() -> ! {
     STOPPING.store(true, Ordering::Relaxed);
-    logs::event("anna.stopping", json!({}));
+    logs::event("sous-chef.stopping", json!({}));
     claude::stop_everything_started_by(std::process::id() as libc::pid_t);
     cooling::compact_the_warm();
     control::forget_socket();
@@ -416,7 +416,7 @@ fn screened(judge: &Judge, standing: Standing, text: &str) -> Screening {
 enum Heard {
     Trusted(String),
     CanAssignWork(String),
-    /// Not someone Anna takes direction from, speaking in a conversation one
+    /// Not someone she takes direction from, speaking in a conversation one
     /// of them opened: a colleague answering on work she was already given.
     InTheConversation(String),
 }
@@ -450,8 +450,8 @@ fn heard_as(people: &BTreeMap<String, String>, source: &Source, message: &Messag
 /// turn that conversation already has running, with everything said to it
 /// meanwhile on the same standing.
 /// Every turn is written down before it is queued and taken out once it is
-/// over, so stopping Anna — or her crashing — loses nothing: what was
-/// waiting and what was in the middle of running are still there when she
+/// over, so stopping sous-chef — or its crashing — loses nothing: what was
+/// waiting and what was in the middle of running are still there when it
 /// starts, and are asked again.
 pub fn wake_in_turn(runtime: &Arc<Runtime>, turns: &Arc<Turns>, conversation: Arc<dyn Conversation>, standing: Standing, said: String) {
     let runtime = runtime.clone();
@@ -507,7 +507,7 @@ pub fn wake_in_turn(runtime: &Arc<Runtime>, turns: &Arc<Turns>, conversation: Ar
     );
 }
 
-/// The turns a stopped Anna never finished, asked again in the order they
+/// The turns a stopped sous-chef never finished, asked again in the order they
 /// came. A thread resumes its own session, so it remembers what it was in
 /// the middle of; it is told it was stopped, since a hand it had going is
 /// gone and the project may be half-changed.

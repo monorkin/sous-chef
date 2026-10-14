@@ -1,4 +1,4 @@
-//! The editor: everything Anna writes to people passes through here on its
+//! The editor: everything she writes to people passes through here on its
 //! way out.
 //!
 //! Agents write dense, over-explained prose. With a style configured, the
@@ -142,8 +142,8 @@ mod tests {
 
     #[test]
     fn code_blocks_are_found_so_a_rewrite_can_be_held_to_them() {
-        let text = "Run this:\n```bash\nmake install\n```\nthen this:\n```\nanna setup\n```\ndone";
-        assert_eq!(code_blocks(text), ["bash\nmake install\n", "\nanna setup\n"]);
+        let text = "Run this:\n```bash\nmake install\n```\nthen this:\n```\nsous-chef setup\n```\ndone";
+        assert_eq!(code_blocks(text), ["bash\nmake install\n", "\nsous-chef setup\n"]);
         assert!(code_blocks("no code here").is_empty());
     }
 }

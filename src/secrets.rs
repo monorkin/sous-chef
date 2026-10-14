@@ -1,14 +1,14 @@
-//! Where Anna keeps tokens: the system keyring when there is one, a private
-//! file when there isn't.
+//! Where sous-chef keeps tokens: the system keyring when there is one, a
+//! private file when there isn't.
 //!
 //! The keyring is the freedesktop Secret Service, reached through
 //! `secret-tool` so there is no D-Bus stack to link. A headless box often has
 //! no keyring running, and a user service may start before it is unlocked, so
 //! the file is a real second home and not an error path: storing falls back
 //! to it, and loading looks in both. Entries are keyed by the config
-//! directory, so two Annas on one machine don't share tokens.
+//! directory, so two installs on one machine don't share tokens.
 //!
-//! `ANNA_KEYRING=off` keeps everything in the file.
+//! `SOUS_CHEF_KEYRING=off` keeps everything in the file.
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
@@ -26,6 +26,7 @@ use crate::github;
 use crate::paths;
 
 const SECONDS_FOR_THE_KEYRING: u64 = 10;
+const SERVICE: &str = "sous-chef";
 
 #[derive(Debug, PartialEq)]
 pub enum Kept {
@@ -34,7 +35,7 @@ pub enum Kept {
 }
 
 pub fn store(name: &str, value: &str) -> Result<Kept> {
-    if keyring_wanted() && store_in_keyring(&format!("Anna: {name}"), &attributes(name), value).is_ok() {
+    if keyring_wanted() && store_in_keyring(&format!("sous-chef: {name}"), &attributes(name), value).is_ok() {
         forget_in_file(name)?;
         Ok(Kept::InKeyring)
     } else {
@@ -46,6 +47,20 @@ pub fn store(name: &str, value: &str) -> Result<Kept> {
 pub fn load(name: &str) -> Option<String> {
     let from_keyring = if keyring_wanted() { load_from_keyring(&attributes(name)) } else { None };
     from_keyring.or_else(|| load_file().ok()?.remove(name))
+}
+
+/// A token an install kept in the keyring under its old name and config
+/// folder, kept under this one's instead, so a rename logs nothing out. The
+/// file needs nothing: it moved with the config folder.
+pub fn move_from(service: &str, config: &std::path::Path, name: &str) -> Result<()> {
+    let old = attributes_of(service, config, name);
+    if keyring_wanted()
+        && let Some(value) = load_from_keyring(&old)
+    {
+        store(name, &value)?;
+        let _ = Command::new("secret-tool").arg("clear").args(&old).status();
+    }
+    Ok(())
 }
 
 /// The logins that the tools she has a profile of her own in keep in the
@@ -102,7 +117,7 @@ fn tool_attributes(service: &str, username: &str) -> [String; 4] {
 }
 
 fn keyring_wanted() -> bool {
-    std::env::var_os("ANNA_KEYRING").is_none_or(|it| it != "off") && paths::program("secret-tool").is_some()
+    std::env::var_os("SOUS_CHEF_KEYRING").is_none_or(|it| it != "off") && paths::program("secret-tool").is_some()
 }
 
 fn store_in_keyring(label: &str, attributes: &[String], value: &str) -> Result<()> {
@@ -124,7 +139,7 @@ fn store_in_keyring(label: &str, attributes: &[String], value: &str) -> Result<(
 }
 
 /// A locked keyring asks someone to unlock it and waits for them. Nobody is
-/// there when Anna starts on her own, so the lookup is given up on and the
+/// there when sous-chef starts on its own, so the lookup is given up on and the
 /// file is tried instead.
 fn load_from_keyring(attributes: &[String]) -> Option<String> {
     let mut lookup = Command::new("secret-tool");
@@ -140,11 +155,15 @@ fn load_from_keyring(attributes: &[String]) -> Option<String> {
 }
 
 fn attributes(name: &str) -> [String; 6] {
+    attributes_of(SERVICE, &paths::config_dir(), name)
+}
+
+fn attributes_of(service: &str, config: &std::path::Path, name: &str) -> [String; 6] {
     [
         "service".to_string(),
-        "anna".to_string(),
+        service.to_string(),
         "config".to_string(),
-        paths::config_dir().to_string_lossy().into_owned(),
+        config.to_string_lossy().into_owned(),
         "name".to_string(),
         name.to_string(),
     ]

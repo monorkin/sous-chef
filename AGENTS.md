@@ -1,17 +1,17 @@
-# Working on Anna
+# Working on sous-chef
 
 ## This repository is public
 
-Nothing that identifies the person Anna works for, their employer, their
+Nothing that identifies the person the agent works for, their employer, their
 machines or their other projects belongs in it — not in code, not in tests,
-not in notes, and not in a commit message. What Anna knows about a particular
-person lives in her config (`~/.config/anna`), never here.
+not in notes, and not in a commit message. What the agent knows about a particular
+person lives in her config (`~/.config/sous-chef`), never here.
 
-The only projects this repository names are anna, katami, ax and tinyclass.
-No other codebase, repository or product someone works on — the ones Anna
+The only projects this repository names are sous-chef, katami, ax and tinyclass.
+No other codebase, repository or product someone works on — the ones the agent
 works in least of all — appears anywhere: not in code, tests, comments, notes,
 commit messages or branch names. Tests and examples use invented projects
-(`shop`, `blog`). The services Anna talks to (Basecamp, HEY, Fizzy, GitHub,
+(`shop`, `blog`). The services the agent talks to (Basecamp, HEY, Fizzy, GitHub,
 Sentry) and the tools she runs on (Claude Code, mise, mbx, bubblewrap) are
 what she is built from, and may be named.
 

@@ -1,4 +1,4 @@
-BINARY=anna
+BINARY=sous-chef
 REPO_URL=https://github.com/monorkin/$BINARY
 VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
 

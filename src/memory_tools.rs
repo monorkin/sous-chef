@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn she_can_look_up_write_down_correct_and_retire_what_she_remembers() {
-        let directory = std::env::temp_dir().join(format!("anna-memory-tools-{}", std::process::id()));
+        let directory = std::env::temp_dir().join(format!("sous-chef-memory-tools-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
 
         let untrusted = memory_tools(&directory, Standing::CanAssignWork);

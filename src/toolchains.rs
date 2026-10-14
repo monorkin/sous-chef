@@ -76,7 +76,7 @@ impl Toolchains {
     }
 
     fn from_mise(mise: &Path, home: &Path) -> Toolchains {
-        // Hands without mise's tools still work; an Anna that never comes up
+        // Hands without mise's tools still work; a sous-chef that never comes up
         // because mise is busy doesn't
         let mut bin_paths = Command::new(mise);
         bin_paths.arg("bin-paths").current_dir(home);
@@ -178,7 +178,7 @@ mod tests {
 
     #[test]
     fn rust_is_the_default_toolchain_when_installed_and_stable_otherwise() {
-        let root = std::env::temp_dir().join(format!("anna-rust-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("sous-chef-rust-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let rustup = root.join("rustup");
         let cargo = root.join("cargo");
@@ -203,7 +203,7 @@ mod tests {
 
     #[test]
     fn mbx_is_found_among_the_persons_tools() {
-        let root = std::env::temp_dir().join(format!("anna-mbx-{}", std::process::id()));
+        let root = std::env::temp_dir().join(format!("sous-chef-mbx-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let (node, boxington) = (root.join("node/26/bin"), root.join("mr-boxington/1.10.0"));
         std::fs::create_dir_all(&node).unwrap();

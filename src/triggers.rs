@@ -1,4 +1,4 @@
-//! A source's trigger: a command that runs for as long as Anna does and
+//! A source's trigger: a command that runs for as long as sous-chef does and
 //! prints a line whenever something happens there, so the source is checked
 //! then and not only on its timer.
 
@@ -16,7 +16,7 @@ use crate::logs;
 
 const SECONDS_BEFORE_RESTARTING_A_TRIGGER: u64 = 10;
 
-/// Runs a source's trigger for as long as Anna runs, poking the source for
+/// Runs a source's trigger for as long as sous-chef runs, poking the source for
 /// every line it prints. What the line says doesn't matter: she reads what
 /// happened from the source itself, so a trigger can't put words in anyone's
 /// mouth. A trigger that exits is started again after a pause — watchers lose

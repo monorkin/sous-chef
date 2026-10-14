@@ -1,9 +1,10 @@
-//! `anna dash`: her tabs in one terminal. The overview has what is going on
+//! `sous-chef dash`: her tabs in one terminal. The overview has what is going on
 //! now and the end of her log; the chat tells a thread something the way
-//! `anna tell` does, with what that thread is doing above; the memory tab
+//! `sous-chef tell` does, with what that thread is doing above; the memory
+//! tab
 //! reads, archives and brings back what she has learned; usage has her
 //! Claude accounts and Jev's bill. What it shows is gathered on a thread of
-//! its own every few seconds, so a slow answer from ax or a running Anna
+//! its own every few seconds, so a slow answer from ax or a running sous-chef
 //! never holds up the keyboard.
 
 use anyhow::Result;

@@ -126,7 +126,7 @@ impl Endpoint {
 /// The `--mcp-config` that points a session at an endpoint. Inside a sandbox
 /// the socket is bound somewhere else, so the path is the caller's to give.
 pub fn mcp_config(socket: &Path) -> String {
-    json!({ "mcpServers": { "anna": {
+    json!({ "mcpServers": { "sous-chef": {
         "command": "socat",
         "args": ["-", format!("UNIX-CONNECT:{}", socket.display())],
     }}})
@@ -137,7 +137,7 @@ pub fn mcp_config(socket: &Path) -> String {
 /// listener stops — woken by one last connection, since nothing else stops
 /// an accept — and whoever is still connected is served nothing more.
 /// Without this every turn would leave a thread, a socket and its tools
-/// behind for as long as Anna runs.
+/// behind for as long as sous-chef runs.
 impl Drop for Endpoint {
     fn drop(&mut self) {
         self.closed.store(true, Ordering::Relaxed);
@@ -172,7 +172,7 @@ fn respond(message: &Value, tools: &[Box<dyn Tool>], who: &str) -> Option<Value>
         "initialize" => Ok(json!({
             "protocolVersion": PROTOCOL_VERSION,
             "capabilities": { "tools": {} },
-            "serverInfo": { "name": "anna", "version": env!("CARGO_PKG_VERSION") },
+            "serverInfo": { "name": "sous-chef", "version": env!("CARGO_PKG_VERSION") },
         })),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({ "tools": tools.iter().map(|it| listing(it.as_ref())).collect::<Vec<_>>() })),
@@ -251,13 +251,13 @@ mod tests {
 
     #[test]
     fn a_session_lists_and_calls_the_tools_it_was_given() {
-        let socket = std::env::temp_dir().join(format!("anna-broker-{}.sock", std::process::id()));
+        let socket = std::env::temp_dir().join(format!("sous-chef-broker-{}.sock", std::process::id()));
         let endpoint = Endpoint::open(&socket, vec![Box::new(Echo)]).unwrap();
         let mut stream = UnixStream::connect(&socket).unwrap();
         let mut reader = BufReader::new(stream.try_clone().unwrap());
 
         let hello = exchange(&mut stream, &mut reader, json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {} }));
-        assert_eq!(hello["result"]["serverInfo"]["name"], "anna");
+        assert_eq!(hello["result"]["serverInfo"]["name"], "sous-chef");
 
         writeln!(stream, "{}", json!({ "jsonrpc": "2.0", "method": "notifications/initialized" })).unwrap();
 

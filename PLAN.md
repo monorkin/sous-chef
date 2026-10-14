@@ -7,7 +7,7 @@ Where things stand as of 2026-09-20.
 Works end to end and is tested live, against scratch projects and a fake
 source:
 
-- `anna chat` — a terminal conversation. A thread is `claude -p`, resumed per
+- `sous-chef chat` — a terminal conversation. A thread is `claude -p`, resumed per
   conversation.
 - The broker — MCP over a unix socket per session, hand-rolled (no tokio, no
   rmcp), reached through socat. Which socket a call arrives on is who is
@@ -21,17 +21,17 @@ source:
   thread to change approach.
 - Grants — `start_hand` can pass on named tools; tools that speak to people
   can't be granted.
-- MCP servers added from outside (`anna mcp add/list/remove/prose`), their
+- MCP servers added from outside (`sous-chef mcp add/list/remove/prose`), their
   tool listing fingerprinted, results screened by the judge.
 - The judge — Jev with a key, haiku without. No answer counts as a yes.
 - The editor — scores against the style, haiku rewrites, two fidelity
   questions (does the rewrite invent anything, does it drop anything) because
   one question couldn't tell a good rewrite from one that lost a fact.
-- `anna run` — sources as config, one generic poller, a dispatcher: backlog
+- `sous-chef run` — sources as config, one generic poller, a dispatcher: backlog
   ignored on first look, unknown senders ignored, injections refused with a
   reply, one turn at a time per conversation.
-- `anna setup`, `anna log -f`, cleanup of profiles left by dead processes,
-  threads that die with Anna.
+- `sous-chef setup`, `sous-chef log -f`, cleanup of profiles left by dead
+  processes, threads that die with sous-chef.
 - The hard stop — `minutes_per_run` (60 by default) for every thread turn,
   hand and reviewer. A run that goes over is killed along with everything it
   started, read off /proc because Claude Code puts shell commands in sessions
@@ -40,11 +40,11 @@ source:
 - mise's tools inside the sandbox, so hands and reviewers can run tests.
 - The config, secured. `config.json`, `style.md` and `CLAUDE.md` sit in one
   folder (700), written 600 through a temp file, and refused on load if anyone
-  but their owner could have written them — the config decides who Anna hears
+  but their owner could have written them — the config decides who the agent hears
   and which commands she runs as MCP servers. Tokens aren't in it: the Jev key
   goes to the keyring through `secret-tool`, or to a 600 `secrets.json` when
-  no keyring answers (`ANNA_KEYRING=off` forces the file).
-- `anna setup`, with colour and a rail down each question (plain when piped,
+  no keyring answers (`SOUS_CHEF_KEYRING=off` forces the file).
+- `sous-chef setup`, with colour and a rail down each question (plain when piped,
   in a dumb terminal, or with NO_COLOR). The walk: a name for the agent — it
   goes into the config, the thread's role and the service — then About, which
   becomes CLAUDE.md, and Style, both written in $EDITOR (or typed in place and
@@ -62,7 +62,7 @@ source:
   while the broker's tools stay, so the work still gets done by hands in their
   sandboxes. A schedule keeps the standing of the turn that made it, so
   nobody schedules their way up. What one thread tells another always arrives
-  untrusted. `anna chat` is trusted: whoever is at the terminal can already do
+  untrusted. `sous-chef chat` is trusted: whoever is at the terminal can already do
   anything she can. Run live: the same "run this command on your machine"
   from someone untrusted did nothing and was answered with why; from someone
   trusted it ran.
@@ -86,16 +86,16 @@ source:
   instruction is written for, but the feature is staff-only and the CLI has no
   agent login of its own yet. `fizzy mcp` is assumed; Fizzy isn't installed
   here.
-- The control socket, and `anna start`, `stop`, `status`, `poke`. Start and
+- The control socket, and `sous-chef start`, `stop`, `status`, `poke`. Start and
   stop go through systemd when the service is installed. Stopping — by
   command, ctrl+c or SIGTERM — kills everything below her and removes her
-  sockets. The socket is also the lock against a second Anna.
-- `anna poke` instead of waiting for the poll. MCP can't push: `hey mcp`
+  sockets. The socket is also the lock against a second sous-chef.
+- `sous-chef poke` instead of waiting for the poll. MCP can't push: `hey mcp`
   offers tools only, no resources or subscriptions. So whatever does know
   something happened pokes her, and she reads the source herself — a poke
   carries no message and no sender, so being able to poke isn't being able to
   speak as someone. The timer stays as the fallback.
-- Triggers. A source can name a command that runs for as long as Anna does
+- Triggers. A source can name a command that runs for as long as sous-chef does
   and prints a line whenever something happens — `hey watch --events new` is
   the one this was made for. Every line is a poke; she restarts the command
   when it exits, reaps it, and takes it down with her. In the config:
@@ -123,11 +123,11 @@ source:
   generic; setup knows the inbox's shape, and looks up the ids of the people
   it is told to trust, in every profile and account the person has. Checked
   against the real inbox once, dry: it answers.
-- `anna source check <name>` reads a source once and shows what Anna would
+- `sous-chef source check <name>` reads a source once and shows what the agent would
   make of it, without remembering or waking anything. Run read-only against
   the real server: 23 of 23 notifications parsed.
-- A store. One SQLite file (`anna.db`, WAL, numbered migrations on
-  `user_version`) for Anna's own moving parts — not katami's memory, which
+- A store. One SQLite file (`sous-chef.db`, WAL, numbered migrations on
+  `user_version`) for the agent's own moving parts — not katami's memory, which
   holds what she has learned. The next thing she has to keep is a table away.
 - Threads schedule their own work: `schedule`, `list_schedules`,
   `cancel_schedule`. Five-field cron in local time for what repeats, a date
@@ -145,17 +145,17 @@ source:
   second report recognised the first thread's claim, told its person it was
   one bug, and passed its detail across.
 - The judge outlives a Jev outage: a few spaced tries, then haiku. Found when
-  Jev answered 529 during a test and Anna refused everyone. When nothing can
+  Jev answered 529 during a test and she refused everyone. When nothing can
   check a message she now says so instead of calling it an attack.
 - Her own state, in her own folder. katami's store is `config/katami` and
   ax's is `config/ax`. Both crates take that through `settings::configure`,
   which `main` calls first thing in every process that is her — so a review
-  katami runs as `anna review …` finds the same store. The same call names
+  katami runs as `sous-chef review …` finds the same store. The same call names
   her Claude folder, `config/claude`, and what ax's commands are reached as
-  (`anna claude`). Her Claude login lives in that folder and nowhere else:
-  `anna claude login` logs it in, `anna claude account add` keeps the login
-  in her own rotation, `anna claude switch` puts another stored one in
-  place, `anna claude whoami` says which. The first version set environment
+  (`sous-chef claude`). Her Claude login lives in that folder and nowhere else:
+  `sous-chef claude login` logs it in, `sous-chef claude account add` keeps the login
+  in her own rotation, `sous-chef claude switch` puts another stored one in
+  place, `sous-chef claude whoami` says which. The first version set environment
   variables for the paths, which was reaching a crate she links through the
   wrong door and leaked into everything she started; the second pointed her
   at a folder inside the person's own ax store, which tied her to it. Her
@@ -165,7 +165,7 @@ source:
   middle of running, when she was stopped — or crashed, or hit a limit — is
   asked again when she starts, in order. A thread resumes its own session,
   so it remembers what it was doing, and is told it was stopped, since a
-  hand it had going is gone. `anna claude account add` and `switch` need
+  hand it had going is gone. `sous-chef claude account add` and `switch` need
   her stopped; now that costs nothing. The tools she has a profile
   of her own in run with `XDG_CONFIG_HOME` pointed at `config/tools`, carried
   as `env` on the MCP server and the trigger, so nothing she is set up with
@@ -182,7 +182,7 @@ source:
 - Basecamp agents are connected by the command line itself
   (`basecamp auth agent connect`): it shows a link and a code, the person
   approves the agent, and it keeps the credentials and mints its own tokens,
-  under a profile named after the agent, in her tools folder. Anna never sees
+  under a profile named after the agent, in her tools folder. She never sees
   a client ID, a secret or a token, and knows nothing of Basecamp's OAuth.
   When the installed basecamp is too old to connect agents, setup waits in
   place: check again after updating, use Basecamp as you, or leave it for
@@ -197,20 +197,20 @@ source:
   drives both sides of every gate without judging anything. The retry on an
   overloaded Jev is a unit test against a local stand-in. Still real in an
   end-to-end run: every `claude` session, which is the point of one.
-- `anna backup` and `anna restore`. One zip, written 600: config, style,
+- `sous-chef backup` and `sous-chef restore`. One zip, written 600: config, style,
   CLAUDE.md, tokens (unless `--without-secrets`), the database snapshotted
   through SQLite so it is safe while she runs, the log, which messages each
   source has seen, every thread's session and the Claude transcript behind it,
   and katami's export of what she has learned. Transcripts are filed by thread
   name, so a backup restores under a different home. Restore refuses while she
-  runs, refuses to replace an existing Anna without `--force`, and refuses
+  runs, refuses to replace an existing install without `--force`, and refuses
   entries that try to leave their folder.
 - One binary. katami and ax are library crates with a thin binary each
-  (`cli.rs` holds their command line), and Anna depends on both from git;
+  (`cli.rs` holds their command line), and sous-chef depends on both from git;
   `Cargo.lock` pins the commits.
-  `anna memory …` and `anna claude account …` are their own subcommands
+  `sous-chef memory …` and `sous-chef claude account …` are their own subcommands
   mounted as they are. katami re-runs its executable as `hook`, `review` and
-  `curate`; inside Anna that executable is Anna, and she hands those three
+  `curate`; inside sous-chef that executable is sous-chef, and it hands those three
   straight to `katami::cli`.
 - Memory for threads. katami learned to supervise without a terminal
   (`supervise_headless`) and grew `Supervision` — begin, cover a command,
@@ -223,13 +223,13 @@ Not built, or not working yet:
 - **Memory for hands.** Threads remember now (see below). What a hand learned
   still goes nowhere: that needs `origin` and speaker in katami, then the
   hand-transcript pipeline with the Jev risk score.
-- **Accounts, live.** `anna run` runs ax's auto-switch in-process, which covers
+- **Accounts, live.** `sous-chef run` runs ax's auto-switch in-process, which covers
   threads and every new hand. Not run live, because it moves the real default
   login. Still missing: moving a long-running hand mid-session.
 - **The config as a ceiling.** `people` decides who is heard and
   `minutes_per_run` is the budget. Who may ask for what, and the widest grant
   a hand can get, don't exist yet — that needs your call on the shape.
-- **Real sources.** Anna has no account of her own anywhere, so no source has
+- **Real sources.** The agent has no account of her own anywhere, so no source has
   been configured against a real server.
 - **Dependencies, Rust and services in the sandbox** — decided the other way
   round from "registries through the proxy": hands keep having no network,
@@ -237,7 +237,7 @@ Not built, or not working yet:
   project's dependencies before starting a hand; the hand builds offline.
   Rust goes in from rustup's folder (the default toolchain when installed,
   stable otherwise) and cargo's caches go in with a writable layer on top,
-  never the registry token next to them. Builds land in a folder of Anna's
+  never the registry token next to them. Builds land in a folder of sous-chef's
   per project, not the project's `target`, which is often a link into a
   cache the sandbox can't see. A hand can be granted ports on this
   machine's loopback — a database for its tests — bridged in with socat the
@@ -247,21 +247,21 @@ Not built, or not working yet:
   package` would work the same way.
 - The classifier-driven dispatcher (routing, model choice), and hand
   transcripts kept for memory. Hands' transcripts are kept now, under
-  `data/hands`, for `anna transcript`; memory doesn't read them yet.
+  `data/hands`, for `sous-chef transcript`; memory doesn't read them yet.
 
 ### After codex's review (2026-09-21)
 
 The whole review is in `reviews/2026-09-21-codex.md`: thirty findings, the
 worst of them ways around the trust tiers. What changed because of it:
 
-- **Trust.** A hand is refused any folder that touches Anna's own state, the
+- **Trust.** A hand is refused any folder that touches sous-chef's own state, the
   home folder or a dot-folder in it — before, someone who could only hand out
   work could point a hand at her database and write a trusted schedule. Turns
   on an untrusted word lost `Read,Grep,Glob` too. Board lines are one short
   line and screened; MCP errors are screened like results. A hand is only
   granted tools their server declares read-only (`readOnlyHint`), so a server
   added today can't post through a hand before anything is marked as prose.
-- **Sandbox.** Nothing of Anna's environment goes in. A hand can't start a
+- **Sandbox.** Nothing of sous-chef's environment goes in. A hand can't start a
   repository or repoint a worktree's `.git` file. Sessions run in a systemd
   scope with a ceiling on memory and processes, when the user's systemd gives
   one. A test runs the real sandbox with a shell where Claude would be.
@@ -270,7 +270,7 @@ worst of them ways around the trust tiers. What changed because of it:
   stopped when it doesn't, and is started again on the next call if its tools
   still match. Haiku, the keyring and mise have deadlines. A turn that is
   over stops its hands and reviewers and closes its endpoint. Turns in a
-  conversation run in the order they came, from a bounded queue. One Anna at
+  conversation run in the order they came, from a bounded queue. One sous-chef at
   a time and one turn per conversation at a time, held by kernel locks.
   katami named its hook socket and overlay after the process alone, so two
   conversations at once took each other's; each supervised session has its
@@ -278,7 +278,7 @@ worst of them ways around the trust tiers. What changed because of it:
 - **Not losing things.** A message that couldn't be checked is tried again
   instead of consumed. Seen ids and every private file are written whole and
   moved into place. Migrations take the write lock before reading the
-  version, and a database from a newer Anna is refused.
+  version, and a database from a newer sous-chef is refused.
 - **Privacy.** What Claude is told goes in on stdin, not in arguments any
   user can read. Her folders are closed at the top on every start; the log
   and staging files are private; the log keeps sizes instead of what she
@@ -319,7 +319,7 @@ you". Codex reviewed the fix (`reviews/2026-09-22-codex-judge.md`). Now:
   kept for an hour and read with `read_held_back` once it passes, so a tool
   isn't called again — a posted comment isn't posted twice — and a hand
   isn't sent back to redo work for a review.
-- A server that acts as the person (setup's "as you", or `anna mcp add
+- A server that acts as the person (setup's "as you", or `sous-chef mcp add
   --as-me`) is offered, and grantable, only to turns on a trusted word.
 - A lent login counts only from the message that woke her. The quota note
   comes from the harness when it saw the limit.
@@ -330,9 +330,9 @@ adversarial tests of haiku as a judge.
 
 ## Decided
 
-- Anna is her own project, built on top of katami (memory) and ax (Claude
-  subscriptions). She ships as one binary: `anna memory …` and
-  `anna claude account …` are katami's and ax's logic pulled in as libraries.
+- sous-chef is its own project, built on top of katami (memory) and ax (Claude
+  subscriptions). It ships as one binary: `sous-chef memory …` and
+  `sous-chef claude account …` are katami's and ax's logic pulled in as libraries.
 - Brain and hands. The brain is a dispatcher plus threads. A thread is one
   Claude Code session per conversation, with its own reviewer. A thread can
   run several hands.
@@ -343,28 +343,28 @@ adversarial tests of haiku as a judge.
 - The thread's reviewer checks the hand's work and sends it back to clean up.
 - What a hand learned reaches memory only through katami's reviewer.
 - Threads share memory.
-- Fully autonomous. No human input past `anna setup`. Nothing may wait on a
+- Fully autonomous. No human input past `sous-chef setup`. Nothing may wait on a
   person to approve, unblock, or decide.
 - Prefer classifiers (Jev) over LLMs wherever the answer is a pick from a
   list. They are faster and cost almost nothing.
 - Sources: Basecamp, Fizzy, HEY, GitHub.
-- Anna is an agent, not a tool. She can fail, but she never answers with the
+- The agent is an agent, not a tool. She can fail, but she never answers with the
   equivalent of "tool call failed". When she hits a limit she tries another
   way, offers what she can do instead, or says what she tried, like a
   colleague would.
 - The brain is not sandboxed. It creates and clones projects and connects to
   servers, and needs real access to do that.
-- A log you can follow: `anna log -f`. No `anna stop` — ctrl+c on `anna run`
+- A log you can follow: `sous-chef log -f`. No `sous-chef stop` — ctrl+c on `sous-chef run`
   is the way to stop her.
 - Rust.
 
 ## Proposed, not yet confirmed
 
-- **Setup config.** What `anna setup` writes: who Anna listens to, which
+- **Setup config.** What `sous-chef setup` writes: who the agent listens to, which
   projects and servers exist, who may ask for what, the widest grant a hand
   can get, and a per-task budget. It turns "is this person allowed to ask for
   this" into a lookup in code, so a thread never decides it from the message
-  it just read. Anna can read the config and cannot rewrite it; the broker
+  it just read. The agent can read the config and cannot rewrite it; the broker
   refuses any grant above it.
 - **What protects an unsandboxed brain.** The config decides who can ask for
   server-level work; who sent a message comes from the source, never the text;
@@ -378,11 +378,11 @@ adversarial tests of haiku as a judge.
   is reported as what she tried and where she got stuck.
 - **Flagged memories are dropped and logged.** Nobody is on the other end of
   that one.
-- **Stopping cleanly.** `anna run` kills every thread and hand on SIGINT and
+- **Stopping cleanly.** `sous-chef run` kills every thread and hand on SIGINT and
   SIGTERM. Hands live in their own sandboxes and would otherwise outlive her.
   Covers `systemctl stop` on the machine she runs on too.
 - **A table of what's in flight.** katami memory only updates after a review,
-  which is too slow for two threads working on the same project at once. Anna
+  which is too slow for two threads working on the same project at once. sous-chef
   keeps threads, tasks and grants in her own SQLite, and threads can ask what
   else is going on.
 
@@ -397,7 +397,7 @@ One thread per conversation, with a lock so it never runs twice at once;
 different conversations run in parallel. Who sent a message comes from the
 source's own data, never from the message text.
 
-Anna gets her own account on each source, so assigning her work is a normal
+The agent gets her own account on each source, so assigning her work is a normal
 assignment and the source's permissions limit what she sees.
 
 ### Thread
@@ -458,19 +458,19 @@ haiku as a detector gets steered by the text it's scoring; Jev can't be.
 
 ### Setup
 
-`anna setup` walks through: Claude accounts, the sources and who may ask for
+`sous-chef setup` walks through: Claude accounts, the sources and who may ask for
 what, MCP servers, and three optional things —
 
 - a Jev API key (see Judge)
 - a prose style, stored in the config. The editor scores and rewrites outgoing
   text against it. Without one there is no style pass.
-- a personality, which becomes the CLAUDE.md in Anna's own Claude profile, so
+- a personality, which becomes the CLAUDE.md in the agent's own Claude profile, so
   every thread loads it. Hands don't get it; they keep the project's own
   CLAUDE.md.
 
 ### MCP servers
 
-Integrations are not built in. `anna mcp add basecamp -- basecamp mcp`, same
+Integrations are not built in. `sous-chef mcp add basecamp -- basecamp mcp`, same
 shape as `claude mcp add`; `basecamp mcp` and `hey mcp` already exist, and
 GitHub has an official server. Any other MCP server can be added the same way.
 
@@ -479,13 +479,13 @@ client and re-exposes their tools to threads and hands, filtered by grant, so
 no session ever talks to a server directly.
 
 - The config marks which tools and arguments carry prose for people. Those go
-  through the editor. `reply(text)` is Anna's own tool and maps to the right
+  through the editor. `reply(text)` is the agent's own tool and maps to the right
   server tool for the conversation.
 - Hands never post to people. Their words go to the thread; the thread speaks.
 - Tool results are untrusted and get the same injection score as inbound
   messages. Tool descriptions are pinned when the server is added.
 - Inbound stays built in: MCP has no usable "something new arrived", so each
-  source has a small poller. A server without a poller means Anna can act
+  source has a small poller. A server without a poller means the agent can act
   there but nobody can talk to her there.
 
 ### Editor
@@ -504,7 +504,7 @@ Untested: whether Jev or haiku can judge style at all.
 Everything that asks a classifier-shaped question — routing, injection score,
 memory risk, outcome of a hand, style — goes through one judge with two
 backends. Jev when `TYPESAFE_AI_API_KEY` is set, haiku through the Claude
-subscription when it isn't. Anna works without Jev; she is slower and spends
+subscription when it isn't. sous-chef works without Jev; she is slower and spends
 quota on questions Jev answers for fractions of a cent.
 
 haiku as a judge has one known weakness: on long inputs it sometimes answers
@@ -524,7 +524,7 @@ pinned to one account. Needed:
 ### Where classifiers go
 
 - Dispatcher: which conversation, which project, task or question or chatter,
-  is this addressed to Anna. A "thanks" never wakes a thread.
+  is this addressed to the agent. A "thanks" never wakes a thread.
 - Model choice: haiku, sonnet or opus per hand by how hard the task is.
 - Hand outcome: done, blocked, needs input, failed — from the free-text report.
 - Broker, outbound: is this comment on topic for the task. Secrets get a regex
@@ -534,16 +534,16 @@ pinned to one account. Needed:
 
 ## Changes to katami and ax
 
-- Both become library crates with a thin binary, so Anna can pull them in and
+- Both become library crates with a thin binary, so sous-chef can pull them in and
   they keep working as standalone tools.
 - katami re-spawns itself as `current_exe() review …` (`src/reviewer.rs`), and
-  probably does the same for hooks. Inside Anna `current_exe()` is Anna, so she
+  probably does the same for hooks. Inside sous-chef `current_exe()` is sous-chef, so it
   has to expose the same hidden subcommands.
 - katami: an `origin` on memories (owner, person, worker) with the class rules
   per origin, and a speaker on transcript turns — today "user turn" means the
-  person katami runs for, and in Anna it can be a coworker whose words would
+  person katami runs for, and in sous-chef it can be a coworker whose words would
   otherwise become that person's preferences.
-- Two binaries on one memory store: pin Anna to the installed katami version,
+- Two binaries on one memory store: pin sous-chef to the installed katami version,
   or let the schema-version check refuse the older one.
 - ax: the two account changes above.
 
@@ -555,10 +555,10 @@ poller and dispatcher, setup.
 
 Next:
 
-1. Release katami and ax, and Anna herself, so there is an install line for
+1. Release katami and ax, and sous-chef itself, so there is an install line for
    the README.
 2. A basecamp CLI with `auth agent connect` (on its `main`, not in v0.11.0), then
-   Anna as an agent in a real Basecamp account, end to end.
+   the agent in a real Basecamp account, end to end.
 3. The config as a ceiling: who may ask for what, the widest grant, a per-task
    budget.
 4. Gems and node packages into the sandbox the way cargo's crates are.

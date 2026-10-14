@@ -1,11 +1,11 @@
 [package]
-name = "anna"
-version = "0.1.7"
+name = "sous-chef"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 
 [dependencies]
-# Anna is built on these two: katami is her memory, ax her Claude accounts.
+# sous-chef is built on these two: katami is the agent's memory, ax its Claude accounts.
 # Cargo.lock pins the commit; `cargo update -p katami -p ax` moves to newer ones.
 katami = { git = "https://github.com/monorkin/katami.git" }
 ax = { git = "https://github.com/monorkin/ax.git" }
@@ -21,5 +21,5 @@ serde_json = "1.0.151"
 ureq = { version = "3.4.0", features = ["json"] }
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 usage = { version = "6", package = "usage-rs", features = ["completions"] }
-# `anna dash`; crossterm comes with it, as `ratatui::crossterm`
+# `sous-chef dash`; crossterm comes with it, as `ratatui::crossterm`
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }

@@ -1,6 +1,6 @@
-//! What `anna dash` shows, gathered in one place: her Claude accounts and
+//! What `sous-chef dash` shows, gathered in one place: her Claude accounts and
 //! Jev's bill, what is going on now, the end of her log, and her memories.
-//! Gathering asks the running Anna, ax, katami and the log; turning their
+//! Gathering asks the running sous-chef, ax, katami and the log; turning their
 //! answers into rows touches none of them, and that is the part the tests
 //! cover.
 
@@ -29,7 +29,7 @@ pub struct Snapshot {
     pub accounts_unknown: Option<String>,
     /// Jev's requests and what they cost, as rows, when it is set up.
     pub jev: Option<Vec<[String; 2]>>,
-    /// The newest lines of the log, as `anna log` colours them.
+    /// The newest lines of the log, as `sous-chef log` colours them.
     pub log: Vec<String>,
     /// Or why it can't be had: she isn't running, or didn't answer.
     pub now: Result<Now, String>,
@@ -72,7 +72,7 @@ pub struct Limit {
     pub resets_in: String,
 }
 
-/// What `anna status` knows, as rows.
+/// What `sous-chef status` knows, as rows.
 #[derive(Default, Debug, PartialEq)]
 pub struct Now {
     /// Thread, running for, messages waiting, title, hand, the hand's
@@ -213,7 +213,7 @@ fn dollars(requests: u64) -> String {
     format!("${:.2}", requests as f64 * JEV_DOLLARS_PER_REQUEST_ESTIMATE)
 }
 
-/// The `status` answer of a running Anna, as rows.
+/// The `status` answer of a running sous-chef, as rows.
 fn now_of(status: &Value) -> Now {
     let mut now = Now::default();
     for turn in listed(&status["going_on"]) {

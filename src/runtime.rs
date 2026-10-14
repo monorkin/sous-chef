@@ -1,4 +1,4 @@
-//! What one `anna` process builds once and every thread shares: the judge,
+//! What one `sous-chef` process builds once and every thread shares: the judge,
 //! the editor, the MCP servers, and the proxy hands reach Claude through.
 //!
 //! Starting up also sweeps away what dead processes left behind. A hand's
@@ -114,8 +114,8 @@ impl Runtime {
         })
     }
 
-    /// For a process that runs one conversation and exits, like `anna
-    /// chat`: its hands and the turns their verdicts wake would die with it.
+    /// For a process that runs one conversation and exits, like
+    /// `sous-chef chat`: its hands and the turns their verdicts wake would die with it.
     pub fn wait_until_settled(&self) {
         while self.hands.are_working() || self.turns.busy_conversations() > 0 {
             std::thread::sleep(Duration::from_secs(1));
@@ -143,7 +143,7 @@ mod tests {
 
     #[test]
     fn only_dead_processes_are_swept() {
-        let all_sessions = std::env::temp_dir().join(format!("anna-sweep-{}", std::process::id()));
+        let all_sessions = std::env::temp_dir().join(format!("sous-chef-sweep-{}", std::process::id()));
         let mine = all_sessions.join(std::process::id().to_string());
         let dead = all_sessions.join("4194305");
         fs::create_dir_all(mine.join("h1/profile")).unwrap();

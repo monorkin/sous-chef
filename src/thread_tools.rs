@@ -180,7 +180,7 @@ impl Tool for ClaudeUsage {
     fn call(&self, _arguments: &Value) -> Result<String> {
         let reports = ax::usage::of_every_account()?;
         if reports.is_empty() {
-            Ok("No accounts are stored for you, so there is nothing to read usage from. `anna claude account add` stores the one you're logged in as.".to_string())
+            Ok("No accounts are stored for you, so there is nothing to read usage from. `sous-chef claude account add` stores the one you're logged in as.".to_string())
         } else {
             Ok(ax::usage::described(&reports, ax::clock::now_seconds()))
         }
