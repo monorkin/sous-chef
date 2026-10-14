@@ -31,7 +31,7 @@ use crate::taster::Screening;
 
 const ROUNDS_BEFORE_RETHINKING: u32 = 3;
 const HOURS_A_COMMIS_WAITS: u64 = 12;
-const LAST_WORD: &str = "You have been stopped part way: the Claude supplier you run on is being switched, and you won't get to go on. Don't do any more work. In a few short lines, say what is done, what isn't, and where the folder stands — what is changed, committed, broken — so whoever picks this up next can start from there.";
+const LAST_WORD: &str = "You have been stopped part way: the Claude account you run on is being switched, and you won't get to go on. Don't do any more work. In a few short lines, say what is done, what isn't, and where the folder stands — what is changed, committed, broken — so whoever picks this up next can start from there.";
 
 /// Every commis she has, across turns and conversations. A chef de partie
 /// only ever reaches its own, and has no more than `per_chef_de_partie` at
@@ -327,7 +327,7 @@ impl Kitchen {
     /// from inside a project, and goes straight to the chef de partie.
     fn told_of_a_switch(&self, id: &str, commis: &Commis, last_word: Result<String>) -> String {
         let project = commis.project().display();
-        let stopped = format!("Commis {id} was stopped because you were moving to another Claude supplier, and is gone. What it changed in {project} stays.");
+        let stopped = format!("Commis {id} was stopped because you were moving to another Claude account, and is gone. What it changed in {project} stays.");
         let account = match last_word {
             Ok(said) => match self.runtime.taster.screen(&said) {
                 Screening::Clear => format!("Its own account of where it stood:\n\n{said}"),

@@ -37,7 +37,7 @@ pub fn check(name: &str) -> Result<()> {
 
     println!("{} messages found in {} bytes of answer.", messages.len(), answer.len());
     if printer.cursor.is_some() && messages.is_empty() {
-        println!("This printer is read from a position, so an empty answer is the usual one: it holds what arrived since she last looked.");
+        println!("This printer is read from a position, so an empty answer is the usual one: it holds what arrived since it last looked.");
     }
     for message in &messages {
         let listened_to = match config.people.get(&message.sender) {

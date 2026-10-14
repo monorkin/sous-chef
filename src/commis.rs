@@ -20,7 +20,7 @@ use crate::proxy::{self, Bridge, Proxy};
 use crate::sandbox::{self, Outside, Sandbox, Service};
 use crate::station::Station;
 use crate::station_work::{AtStation, Forwarded};
-use crate::suppliers;
+use crate::accounts;
 use crate::transcripts;
 
 const ON_ANOTHER_MODEL: &str = "Your run was cut off part way — the Claude allowance for the model it ran on is used up — and you have just been started again in the same session on another model. Nothing you did is lost. The limit message in your history is about that, not about anything in the project. Look at where things stand and carry on with the brief from there; when you are done, report as you would have.";
@@ -179,12 +179,12 @@ impl Commis {
     fn run(&mut self, model: &str, told: &str, outside: &Outside, started: &Started) -> Result<Reply> {
         let (id, profile) = (self.id.clone(), self.directory.join("profile"));
         // Her login was refreshed while the commis ran and the token it held
-        // was revoked with that, the token simply expired, or the supplier it
+        // was revoked with that, the token simply expired, or the account it
         // was on is spent. The session is whole: it goes on with her current
         // login and what it had done.
         let refresh = |spent: bool| {
             if spent {
-                suppliers::moved_off_the_spent_supplier();
+                accounts::moved_off_the_spent_account();
             }
             logs::event("commis.login_refreshed", json!({ "commis": id, "spent": spent }));
             claude::refresh_commis_login(&profile)

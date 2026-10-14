@@ -2,13 +2,13 @@
 //! sous-chef what it is, in one zip.
 //!
 //! What goes in: the config with her style and CLAUDE.md, her tokens and the
-//! Claude suppliers she rotates between, the Claude Code folder she works
+//! Claude accounts she rotates between, the Claude Code folder she works
 //! from with its settings and skills, the config of the tools she has her
 //! own profile in and the logins those tools keep in the keyring, the
 //! database of schedules and the work board, which messages each printer has
 //! already seen, the log, every chef de partie's session and the Claude
 //! transcript behind it — without those a restored chef de partie would have
-//! forgotten its conversation — an export of her recipe book, and whether she
+//! forgotten its conversation — an export of what she has learned, and whether she
 //! ran as a service. The projects she works on are not hers, and stay out.
 //!
 //! A backup can be taken while she runs. The database is the only file that
@@ -43,8 +43,8 @@ use crate::transcripts;
 
 const MANIFEST: &str = "manifest.json";
 const SECRETS: &str = "secrets.json";
-const RECIPES: &str = "recipes.zip";
-const OLD_MEMORY: &str = "memory.zip";
+const MEMORY: &str = "memory.zip";
+const OLD_NAME_OF_MEMORY: &str = "recipes.zip";
 const TOOL_LOGINS: &str = "tool-logins.json";
 const CONFIG_FILES: [&str; 3] = ["config.json", "style.md", "CLAUDE.md"];
 const SECRET_NAMES: [&str; 1] = [config::JEV_API_KEY];
@@ -87,7 +87,7 @@ pub fn backup(to: Option<PathBuf>, without_secrets: bool) -> Result<()> {
     archive.add_database()?;
     archive.add_data_files()?;
     archive.add_transcripts()?;
-    archive.add_recipes()?;
+    archive.add_memory()?;
     archive.add(MANIFEST, manifest(without_secrets).to_string().as_bytes())?;
     let entries = archive.entries;
     archive.zip.finish()?;
@@ -123,7 +123,7 @@ impl Archive {
     }
 
     /// The Claude Code folder she works from: her settings, the skills that
-    /// describe her tools, and — with her tokens — the supplier it is logged
+    /// describe her tools, and — with her tokens — the account it is logged
     /// into. Not what Claude Code makes for itself as it runs.
     fn add_claude_profile(&mut self, with_login: bool) -> Result<()> {
         let profile = paths::claude_config_home();
@@ -139,13 +139,13 @@ impl Archive {
         Ok(())
     }
 
-    /// The Claude suppliers she rotates between, the config of the tools she
+    /// The Claude accounts she rotates between, the config of the tools she
     /// has a profile of her own in, and the logins those tools keep in the
     /// keyring. All of them are logins — a tool without a keyring keeps its
     /// credentials right there in a file — so they go wherever her tokens go
     /// and stay out when those do.
     fn add_logins(&mut self) -> Result<()> {
-        self.add_tree(&paths::suppliers_dir(), "config/ax")?;
+        self.add_tree(&paths::accounts_dir(), "config/ax")?;
         self.add_tree(&paths::tools_config_home(), "config/tools")?;
         let tool_logins = secrets::tool_logins();
         if !tool_logins.is_empty() {
@@ -196,12 +196,12 @@ impl Archive {
 
     /// katami writes its own export, which restore hands back to it. A store
     /// with nothing in it has nothing to export, and that is not an error.
-    fn add_recipes(&mut self) -> Result<()> {
-        let exported = staging("recipes.zip")?;
+    fn add_memory(&mut self) -> Result<()> {
+        let exported = staging("memory.zip")?;
         let _ = fs::remove_file(&exported);
         match katami::transfer::export("all", Some(exported.clone())) {
-            Ok(_) => self.add_file_if_there(&exported, RECIPES)?,
-            Err(error) => eprintln!("Her recipe book was left out: {error:#}. That is expected when she has none yet."),
+            Ok(_) => self.add_file_if_there(&exported, MEMORY)?,
+            Err(error) => eprintln!("The agent's memory was left out: {error:#}. That is expected when it has none yet."),
         }
         let _ = fs::remove_file(&exported);
         Ok(())
@@ -296,8 +296,8 @@ pub fn restore(path: &Path, force: bool) -> Result<()> {
                 }
             }
             restored += 1;
-        } else if name == RECIPES || name == OLD_MEMORY {
-            restore_recipes(&contents)?;
+        } else if name == MEMORY || name == OLD_NAME_OF_MEMORY {
+            restore_memory(&contents)?;
             restored += 1;
         } else if let Some(destination) = destination_of(&name)? {
             put(&destination, &contents)?;
@@ -308,7 +308,7 @@ pub fn restore(path: &Path, force: bool) -> Result<()> {
     println!("Restored {restored} files from the backup of {}.", manifest["created"].as_str().unwrap_or("an unknown time"));
     if manifest["service"] == json!(true) && !service::installed() {
         service::install(&config::Config::load()?.name, true)?;
-        println!("She ran as a service where the backup was made, and does here too.");
+        println!("It ran as a service where the backup was made, and does here too.");
     }
     println!("`sous-chef start` brings it back up.");
     Ok(())
@@ -408,11 +408,11 @@ fn put(destination: &Path, contents: &[u8]) -> Result<()> {
     fsutil::write_private_bytes(destination, contents)
 }
 
-/// Recipes that are already here win over the backup's: they are the newer
+/// Memories that are already here win over the backup's: they are the newer
 /// ones, and katami's store is shared with every other session on the
 /// machine.
-fn restore_recipes(exported: &[u8]) -> Result<()> {
-    let path = staging("recipes.zip")?;
+fn restore_memory(exported: &[u8]) -> Result<()> {
+    let path = staging("memory.zip")?;
     fsutil::write_private_bytes(&path, exported)?;
     let imported = katami::transfer::import(&path, katami::transfer::OnCollision::Skip, &paths::claude_config_home());
     let _ = fs::remove_file(&path);
@@ -421,7 +421,7 @@ fn restore_recipes(exported: &[u8]) -> Result<()> {
 
 /// Where a file waits on its way into or out of a zip: her runtime folder,
 /// which only she can look into. The system's temp folder is everyone's,
-/// and a database or her recipe book would sit there readable under a name
+/// and a database or her memory would sit there readable under a name
 /// anyone could guess.
 fn staging(name: &str) -> Result<PathBuf> {
     let directory = paths::runtime_dir().join("staging");

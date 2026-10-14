@@ -26,7 +26,7 @@ Keep out:
   home folder. Tests that need a home use `/home/someone`.
 - Tokens, keys and credentials of any kind, in any shape — including a
   fragment of one in an error message pasted into a note.
-- Anything exported from a real transcript, recipe book or inbox. A corpus
+- Anything exported from a real transcript, memory store or inbox. A corpus
   built from real data stays out of git; write the committed one by hand or
   generate it.
 

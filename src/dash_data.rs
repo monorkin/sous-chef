@@ -1,5 +1,5 @@
-//! What `sous-chef dash` shows, gathered in one place: her Claude suppliers and
-//! Jev's bill, what is going on now, the end of her log, and her recipes.
+//! What `sous-chef dash` shows, gathered in one place: her Claude accounts and
+//! Jev's bill, what is going on now, the end of her log, and her memories.
 //! Gathering asks the running sous-chef, ax, katami and the log; turning their
 //! answers into rows touches none of them, and that is the part the tests
 //! cover.
@@ -24,23 +24,23 @@ const LOG_LINES: usize = 500;
 
 /// Everything on the dashboard at one moment.
 pub struct Snapshot {
-    pub suppliers: Vec<Supplier>,
-    /// Why there are no suppliers to show, when ax couldn't say.
-    pub suppliers_unknown: Option<String>,
+    pub accounts: Vec<Account>,
+    /// Why there are no accounts to show, when ax couldn't say.
+    pub accounts_unknown: Option<String>,
     /// Jev's requests and what they cost, as rows, when it is set up.
     pub jev: Option<Vec<[String; 2]>>,
     /// The newest lines of the log, as `sous-chef log` colours them.
     pub log: Vec<String>,
     /// Or why it can't be had: she isn't running, or didn't answer.
     pub now: Result<Now, String>,
-    /// Every recipe, archived ones too, the newest first; or why they
+    /// Every memory, archived ones too, the newest first; or why they
     /// couldn't be read.
-    pub recipes: Result<Vec<RecipeRow>, String>,
+    pub memories: Result<Vec<MemoryRow>, String>,
 }
 
-/// One recipe as the dashboard lists and shows it.
+/// One memory as the dashboard lists and shows it.
 #[derive(Debug, PartialEq, Clone)]
-pub struct RecipeRow {
+pub struct MemoryRow {
     pub id: String,
     pub kind: String,
     pub entity: Option<String>,
@@ -53,9 +53,9 @@ pub struct RecipeRow {
     pub updated: String,
 }
 
-/// One Claude supplier and how full its limits are.
+/// One Claude account and how full its limits are.
 #[derive(Debug, PartialEq)]
-pub struct Supplier {
+pub struct Account {
     /// Its alias, or its email up to the @.
     pub name: String,
     pub in_use: bool,
@@ -105,30 +105,30 @@ pub fn jev_is_set_up() -> bool {
 }
 
 pub fn gather(with_jev: bool) -> Snapshot {
-    let (suppliers, suppliers_unknown) = match ax::usage::of_every_account() {
-        Ok(reports) => (suppliers_of(&reports, ax::clock::now_seconds()), None),
+    let (accounts, accounts_unknown) = match ax::usage::of_every_account() {
+        Ok(reports) => (accounts_of(&reports, ax::clock::now_seconds()), None),
         Err(error) => (Vec::new(), Some(format!("{error:#}"))),
     };
 
     Snapshot {
-        suppliers,
-        suppliers_unknown,
+        accounts,
+        accounts_unknown,
         jev: with_jev.then(|| jev_rows(&JevRequests::in_log(&fs::read_to_string(paths::log_file()).unwrap_or_default(), &a_day_ago()))),
         log: logs::newest_styled(LOG_LINES),
         now: control::ask(json!({ "command": "status" })).map(|it| now_of(&it["status"])).map_err(|error| format!("{error}.")),
-        recipes: recipes().map_err(|error| format!("Her recipes couldn't be read: {error:#}.")),
+        memories: memories().map_err(|error| format!("The agent's memories couldn't be read: {error:#}.")),
     }
 }
 
-fn recipes() -> Result<Vec<RecipeRow>> {
+fn memories() -> Result<Vec<MemoryRow>> {
     let memory = Memory::open(&katami::paths::memory_dir())?;
     let listing = Listing { filter: ListFilter::All, kinds: Vec::new(), order: Vec::new() };
-    Ok(memory.overview(&listing)?.iter().map(recipe_row).collect())
+    Ok(memory.overview(&listing)?.iter().map(memory_row).collect())
 }
 
-fn recipe_row(row: &OverviewRow) -> RecipeRow {
+fn memory_row(row: &OverviewRow) -> MemoryRow {
     let stored = &row.stored;
-    RecipeRow {
+    MemoryRow {
         id: stored.id.to_string(),
         kind: stored.kind.to_string(),
         entity: stored.entity.clone(),
@@ -168,8 +168,8 @@ impl JevRequests {
     }
 }
 
-/// Each supplier's limits, in the order and under the names ax gives them.
-fn suppliers_of(reports: &[Report], now: i64) -> Vec<Supplier> {
+/// Each account's limits, in the order and under the names ax gives them.
+fn accounts_of(reports: &[Report], now: i64) -> Vec<Account> {
     reports
         .iter()
         .map(|report| {
@@ -188,7 +188,7 @@ fn suppliers_of(reports: &[Report], now: i64) -> Vec<Supplier> {
                     });
                 }
             }
-            Supplier { name: name_of(&report.account), in_use: report.active, limits }
+            Account { name: name_of(&report.account), in_use: report.active, limits }
         })
         .collect()
 }
@@ -283,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn suppliers_show_each_limit_and_which_one_is_in_use() {
+    fn accounts_show_each_limit_and_which_one_is_in_use() {
         let account = |email: &str| serde_json::from_value(json!({ "number": 1, "email": email, "added": "2026-09-01" })).unwrap();
         let usage = serde_json::from_value(json!({
             "five_hour": { "utilization": 40.0, "resets_at": "2026-09-27T12:00:00Z" },
@@ -298,10 +298,10 @@ mod tests {
         ];
         let now = ax::clock::epoch_seconds_of("2026-09-27T10:20:00Z").unwrap();
 
-        let suppliers = suppliers_of(&reports, now);
+        let accounts = accounts_of(&reports, now);
         assert_eq!(
-            suppliers[0],
-            Supplier {
+            accounts[0],
+            Account {
                 name: "marta".to_string(),
                 in_use: true,
                 limits: [
@@ -311,7 +311,7 @@ mod tests {
                 ],
             }
         );
-        assert_eq!(suppliers[1], Supplier { name: "Work".to_string(), in_use: false, limits: [None, None, None] });
+        assert_eq!(accounts[1], Account { name: "Work".to_string(), in_use: false, limits: [None, None, None] });
     }
 
     #[test]

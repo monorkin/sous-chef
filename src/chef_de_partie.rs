@@ -7,9 +7,9 @@
 //! words are said for it rather than lost.
 //!
 //! Every turn runs under katami's supervision, which is where a chef de
-//! partie's recipe book comes from: what she has learned is put in front of
+//! partie's memory comes from: what she has learned is put in front of
 //! it, and the turn is reviewed afterwards for things worth remembering.
-//! Commis never run this way — they don't read the recipe book, and what they
+//! Commis never run this way — they don't read memory, and what they
 //! write isn't trusted enough to become part of it.
 
 use anyhow::{Result, bail};
@@ -36,7 +36,7 @@ use crate::kitchen::Kitchen;
 use crate::logs;
 use crate::paths;
 use crate::plating::SentBack;
-use crate::recipe_book_tools;
+use crate::memory_tools;
 use crate::runtime::Runtime;
 use crate::schedule_tools::{CancelSchedule, ListSchedules, Schedule};
 use crate::switching;
@@ -173,8 +173,8 @@ pub fn wake(runtime: &Arc<Runtime>, conversation: Arc<dyn Conversation>, standin
         }));
     }
     tools.extend(tools_for_later_and_for_others(runtime, conversation.as_ref(), standing));
-    tools.extend(recipe_book_tools::recipe_book_tools(&katami::paths::memory_dir(), standing));
-    // It names the suppliers she works as: for the chefs she works for
+    tools.extend(memory_tools::memory_tools(&katami::paths::memory_dir(), standing));
+    // It names the accounts she works as: for the chefs she works for
     tools.push(broker::on_trust(Box::new(ClaudeUsage), standing));
     tools.extend(runtime.catalog.for_standing(standing, &sent_back, &spoke));
     let endpoint = Endpoint::open(&paths::socket(&format!("chef_de_partie-{key}")), tools)?;
@@ -185,7 +185,7 @@ pub fn wake(runtime: &Arc<Runtime>, conversation: Arc<dyn Conversation>, standin
     if session.begun {
         cooling::compact_if_cold(&key, &session.id);
     }
-    let recipe_book = Supervision::begin(&directory, &key)?;
+    let memory = Supervision::begin(&directory, &key)?;
     let mut message = format!("{}\n\n{}", with_the_board(runtime, conversation.as_ref(), message), on_whose_word(standing));
     let role = role(runtime, answered_otherwise.as_deref());
     let time_limit = Duration::from_secs(runtime.config.minutes_per_chef_de_partie_turn * 60);
@@ -196,7 +196,7 @@ pub fn wake(runtime: &Arc<Runtime>, conversation: Arc<dyn Conversation>, standin
             message = format!("{message}{ON_ANOTHER_MODEL}");
         }
         let mut command = turn(&directory, &endpoint, &session, &role, model, time_limit)?;
-        recipe_book.cover(&mut command);
+        memory.cover(&mut command);
 
         let outcome = claude::reply_of(&mut command, &message, time_limit, None);
         if session.begun && outcome.as_ref().is_err_and(claude::says_the_session_is_gone) {
@@ -207,14 +207,14 @@ pub fn wake(runtime: &Arc<Runtime>, conversation: Arc<dyn Conversation>, standin
             runtime.cooling.woke(&key, &session.id);
             message = format!("{message}\n\n(Your earlier session in this conversation is gone, so you are starting from here without its history.)");
             let mut again = turn(&directory, &endpoint, &session, &role, model, time_limit)?;
-            recipe_book.cover(&mut again);
+            memory.cover(&mut again);
             claude::reply_of(&mut again, &message, time_limit, None)
         } else {
             outcome
         }
     });
     runtime.cooling.turn_over(&key);
-    recipe_book.finish();
+    memory.finish();
     runtime.brigade.let_go_of_forgotten();
 
     match outcome {

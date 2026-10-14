@@ -21,7 +21,7 @@ use crate::logs;
 use crate::paths;
 use crate::sandbox::{self, Outside, Sandbox};
 use crate::station_work::Forwarded;
-use crate::suppliers;
+use crate::accounts;
 use crate::transcripts;
 
 #[derive(Debug, Deserialize, PartialEq)]
@@ -56,7 +56,7 @@ pub fn check(commis: &Commis, brief: &str, report: &str, outside: &Outside, star
         scratch: directory.clone(),
     };
     // A check whose model ran out of allowance starts over on the next model,
-    // in a session of its own. One whose login went stale, or whose supplier
+    // in a session of its own. One whose login went stale, or whose account
     // was spent while she has another, goes on in the same session: a long
     // check is too much to throw away with the commis's work.
     let name = directory.file_name().unwrap_or_default().to_string_lossy().into_owned();
@@ -89,7 +89,7 @@ pub fn check(commis: &Commis, brief: &str, report: &str, outside: &Outside, star
         };
         let refresh = |spent: bool| {
             if spent {
-                suppliers::moved_off_the_spent_supplier();
+                accounts::moved_off_the_spent_account();
             }
             logs::event("pass.login_refreshed", json!({ "commis": commis_id, "spent": spent }));
             claude::refresh_commis_login(&directory.join("profile"))

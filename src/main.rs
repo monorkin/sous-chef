@@ -1,3 +1,4 @@
+mod accounts;
 mod at_work;
 mod backup;
 mod breaker;
@@ -15,7 +16,7 @@ mod dash;
 mod dash_ansi;
 mod dash_chat;
 mod dash_data;
-mod dash_recipes;
+mod dash_memory;
 mod dash_tables;
 mod deadline;
 mod expediter;
@@ -29,6 +30,7 @@ mod mailbox;
 mod mcp;
 mod mcp_cli;
 mod mcp_server;
+mod memory_tools;
 mod old_install;
 mod pass;
 mod paths;
@@ -37,7 +39,6 @@ mod printer;
 mod printer_cli;
 mod prompt;
 mod proxy;
-mod recipe_book_tools;
 mod runtime;
 mod sandbox;
 mod schedule_tools;
@@ -53,7 +54,6 @@ mod station_cli;
 mod station_side;
 mod station_work;
 mod store;
-mod suppliers;
 mod switching;
 mod taster;
 mod timekeeper;
@@ -83,7 +83,7 @@ struct Cli {
 enum Command {
     /// Walk through the one-time setup; safe to run again
     Setup,
-    /// Upgrade a mise install to the latest release, and point her service at it
+    /// Upgrade a mise install to the latest release, and point the service at it
     Upgrade {
         /// Target a specific release instead of the latest
         version: Option<String>,
@@ -92,11 +92,11 @@ enum Command {
     Start,
     /// Stop sous-chef and everything it started
     Stop,
-    /// Stop and start it again; she picks up every turn she was in the middle of
+    /// Stop and start it again; every turn it was in the middle of picks up where it was
     Restart,
     /// Show whether sous-chef is running and what it's listening on
     Status,
-    /// A dashboard in this terminal: her suppliers, recipes and work, what's going on, and a line to tell a chef de partie something
+    /// A dashboard in this terminal: the agent's accounts, memory and work, what's going on, and a line to tell a chef de partie something
     Dash,
     /// Have sous-chef check a printer now instead of at the next tick; all of them when none is named
     Poke { printer: Option<String> },
@@ -107,7 +107,7 @@ enum Command {
         /// Where to write the zip; defaults to sous-chef-backup-<time>.zip here
         #[usage(long)]
         to: Option<std::path::PathBuf>,
-        /// Leave her tokens and logins out of the zip: Jev's key, the Claude suppliers, her tools' own config
+        /// Leave tokens and logins out of the zip: Jev's key, the Claude accounts, the agent's tools' own config
         #[usage(long)]
         without_secrets: bool,
     },
@@ -125,7 +125,7 @@ enum Command {
         #[usage(long, default = "main")]
         conversation: String,
     },
-    /// Say something straight to one of her chefs de partie, with your standing; any part of its name will do
+    /// Say something straight to one of the chefs de partie, with your standing; any part of its name will do
     Tell { chef_de_partie: String, message: String },
     /// Show what the agent has been doing
     Log {
@@ -148,7 +148,7 @@ enum Command {
         #[usage(subcommand)]
         command: StationCommand,
     },
-    /// Manage what she knows about using a tool before she calls it
+    /// Manage what the agent knows about using a tool before it calls it
     Skill {
         #[usage(subcommand)]
         command: SkillCommand,
@@ -158,8 +158,8 @@ enum Command {
         #[usage(subcommand)]
         command: PrinterCommand,
     },
-    /// Inspect and manage what the agent has learned
-    Recipes {
+    /// Inspect and manage what the agent remembers
+    Memory {
         #[usage(subcommand)]
         command: katami::cli::MemoryCommand,
     },
@@ -183,7 +183,7 @@ enum PrinterCommand {
 
 #[derive(Subcommands)]
 enum GithubCommand {
-    /// Log the agent's own GitHub folder in, in the browser; her turns push and open pull requests as that account
+    /// Log the agent's own GitHub folder in, in the browser; its turns push and open pull requests as that account
     Login {
         /// The email that account uses, so commits are credited to it; kept from last time when left out
         #[usage(long)]
@@ -193,17 +193,17 @@ enum GithubCommand {
 
 #[derive(Subcommands)]
 enum ClaudeCommand {
-    /// Log the agent's own Claude folder in, in the browser; then `supplier add` keeps that login
+    /// Log the agent's own Claude folder in, in the browser; then `account add` keeps that login
     Login,
-    /// Manage the suppliers in the rotation
-    Supplier {
+    /// Manage the accounts in the rotation
+    Account {
         #[usage(subcommand)]
         command: ax::cli::AccountCommand,
     },
-    /// Make a stored supplier the one the agent works as
+    /// Make a stored account the one the agent works as
     Switch {
-        /// Supplier number, email, or alias
-        supplier: String,
+        /// Account number, email, or alias
+        account: String,
     },
     /// Who the agent is logged in as right now
     Whoami,
@@ -233,9 +233,9 @@ enum StationCommand {
 
 #[derive(Subcommands)]
 enum SkillCommand {
-    /// Give her a skill of your own: the folder with its SKILL.md in it
+    /// Give the agent a skill of your own: the folder with its SKILL.md in it
     Add { folder: std::path::PathBuf },
-    /// What she knows
+    /// What it knows
     List,
     /// Take one away
     Remove { name: String },
@@ -339,7 +339,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Skill { command } => match command {
             SkillCommand::Add { folder } => {
                 let name = skills::add(&folder)?;
-                println!("Added {name}. Her chefs de partie read it when they need it.");
+                println!("Added {name}. The chefs de partie read it when they need it.");
                 Ok(())
             }
             SkillCommand::List => skills::list(),
@@ -348,7 +348,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Printer { command } => match command {
             PrinterCommand::Check { name } => printer_cli::check(&name),
         },
-        Command::Recipes { command } => katami::cli::run(katami::cli::Cli {
+        Command::Memory { command } => katami::cli::run(katami::cli::Cli {
             command: katami::cli::Command::Memory { command },
         }),
         Command::Github { command } => match command {
@@ -356,11 +356,11 @@ fn run(cli: Cli) -> Result<()> {
         },
         Command::Claude { command } => match command {
             ClaudeCommand::Login => claude::log_in(),
-            ClaudeCommand::Supplier { command } => ax::cli::run(ax::cli::Cli {
+            ClaudeCommand::Account { command } => ax::cli::run(ax::cli::Cli {
                 command: ax::cli::Command::Account { command },
             }),
-            ClaudeCommand::Switch { supplier } => ax::cli::run(ax::cli::Cli {
-                command: ax::cli::Command::Switch { account: supplier },
+            ClaudeCommand::Switch { account } => ax::cli::run(ax::cli::Cli {
+                command: ax::cli::Command::Switch { account },
             }),
             ClaudeCommand::Whoami => {
                 println!("{}", claude::login());
@@ -377,7 +377,7 @@ fn github_login(email: Option<String>) -> Result<()> {
     match email.or_else(github::email) {
         Some(email) => {
             github::set_identity(&config::Config::load()?.name, &email)?;
-            println!("Logged in as {login}. Her turns push and open pull requests as that account, with commits by {email}.");
+            println!("Logged in as {login}. The agent's turns push and open pull requests as that account, with commits by {email}.");
         }
         None => println!("Logged in as {login}, but without an email its commits are credited to nobody: run this again with --email <the account's address>."),
     }

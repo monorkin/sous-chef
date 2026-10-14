@@ -15,8 +15,8 @@ pub const PRINTERS: &str = "printers";
 
 /// The Claude Code config folder she works from: the login she is. Hers,
 /// under her config, and never the chef's or the shell's: `sous-chef claude
-/// login` logs into it, `sous-chef claude supplier add` keeps what is logged
-/// in there, and `sous-chef claude switch` puts another supplier in its place
+/// login` logs into it, `sous-chef claude account add` keeps what is logged
+/// in there, and `sous-chef claude switch` puts another stored account in its place
 /// — the same as ax does for a person, in a store of her own.
 /// Everything she starts is told this folder explicitly.
 pub fn claude_config_home() -> PathBuf {
@@ -31,14 +31,14 @@ pub fn program(name: &str) -> Option<PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
-/// The recipe book, what she has learned: katami's store, kept as her own
-/// rather than shared with the chef's other sessions.
-pub fn recipe_book_dir() -> PathBuf {
+/// What she has learned: katami's store, kept as her own rather than shared
+/// with the chef's other sessions.
+pub fn memory_dir() -> PathBuf {
     config_dir().join("katami")
 }
 
-/// The suppliers she rotates between: ax's store, kept as her own.
-pub fn suppliers_dir() -> PathBuf {
+/// The Claude accounts she rotates between: ax's store, kept as her own.
+pub fn accounts_dir()-> PathBuf {
     config_dir().join("ax")
 }
 
@@ -56,11 +56,11 @@ pub fn tools_config_home() -> PathBuf {
 /// find the same store and login she does.
 pub fn claim_own_state() {
     katami::settings::configure(katami::settings::Settings {
-        data_dir: Some(recipe_book_dir()),
+        data_dir: Some(memory_dir()),
         claude_config_dir: Some(claude_config_home()),
     });
     ax::settings::configure(ax::settings::Settings {
-        data_dir: Some(suppliers_dir()),
+        data_dir: Some(accounts_dir()),
         claude_config_dir: Some(claude_config_home()),
         // So what ax tells someone to run next is a command that exists here
         invoked_as: Some("sous-chef claude".to_string()),

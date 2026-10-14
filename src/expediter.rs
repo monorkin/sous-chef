@@ -34,7 +34,7 @@ use crate::paths;
 use crate::printer::{self, Message, Position, Printed, Seen};
 use crate::runtime::Runtime;
 use crate::store::{PendingTurn, Store};
-use crate::suppliers;
+use crate::accounts;
 use crate::taster::{Screening, Taster};
 use crate::timekeeper;
 use crate::triggers;
@@ -68,8 +68,8 @@ pub fn run() -> Result<()> {
     }))?;
     stop_on_signals();
     timekeeper::keep_time(&runtime, &turns);
-    if runtime.config.rotate_suppliers {
-        suppliers::rotate(&runtime);
+    if runtime.config.rotate_accounts {
+        accounts::rotate(&runtime);
     }
 
     if let Err(error) = pick_up_where_she_left_off(&runtime, &turns) {
@@ -550,7 +550,7 @@ fn as_picked_up(left: &[PendingTurn]) -> Vec<String> {
 
 /// A subscription that is used up is a wait, not a failure: what she was
 /// asked stays asked, at the head of its conversation, and is tried again
-/// until the allowance is back — or another supplier has been switched to in
+/// until the allowance is back — or another account has been switched to in
 /// the meantime. Only after most of a day is it given up as broken.
 fn wake_once_there_is_quota(runtime: &Arc<Runtime>, conversation: &Arc<dyn Conversation>, standing: Standing, said: &str) -> Result<Option<String>> {
     let mut waits = 0;
@@ -566,7 +566,7 @@ fn wake_once_there_is_quota(runtime: &Arc<Runtime>, conversation: &Arc<dyn Conve
             Err(error) if error.downcast_ref::<OutOfQuota>().is_some() && waits < MOST_WAITS_FOR_QUOTA => {
                 waits += 1;
                 logs::event("chef_de_partie.waiting_for_quota", json!({ "conversation": conversation.key(), "waits": waits, "said": format!("{error:#}") }));
-                if !suppliers::moved_off_the_spent_supplier() {
+                if !accounts::moved_off_the_spent_account() {
                     os_thread::sleep(Duration::from_secs(SECONDS_BETWEEN_TRIES_FOR_QUOTA));
                 }
             }

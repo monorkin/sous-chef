@@ -33,7 +33,7 @@ pub fn start() -> Result<()> {
     }
 
     if wait_until(control::is_running) {
-        println!("sous-chef is running. `sous-chef log -f` shows what she's doing.");
+        println!("sous-chef is running. `sous-chef log -f` shows what it's doing.");
         Ok(())
     } else {
         bail!("sous-chef did not come up; see {}", paths::output_file().display())

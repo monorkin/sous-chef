@@ -1,6 +1,6 @@
-//! Which of her Claude suppliers she works as. Chefs de partie run as the
+//! Which of her Claude accounts she works as. Chefs de partie run as the
 //! default Claude login and every commis copies its token from there, so
-//! moving the default login to the supplier with the most room covers both — for what
+//! moving the default login to the account with the most room covers both — for what
 //! starts next. What is already running on the old login is moved by its
 //! caller, which knows what it was in the middle of.
 
@@ -34,13 +34,13 @@ pub fn rotate(runtime: &Arc<Runtime>) {
             let outcome = match ax::auto_switch::decide(SWITCH_AT_PERCENT) {
                 Ok(Decision::Stay(why)) => why,
                 Ok(Decision::Switch(switch)) => {
-                    logs::event("suppliers.switching", json!({ "from": switch.from(), "to": switch.to() }));
+                    logs::event("accounts.switching", json!({ "from": switch.from(), "to": switch.to() }));
                     switching::wind_down_then(&runtime, || switch.carry_out()).unwrap_or_else(|error| format!("switch failed: {error:#}"))
                 }
                 Err(error) => format!("check failed: {error:#}"),
             };
             if outcome != last && !outcome.contains("staying put") {
-                logs::event("suppliers.checked", json!({ "outcome": outcome }));
+                logs::event("accounts.checked", json!({ "outcome": outcome }));
             }
             last = outcome;
             thread::sleep(Duration::from_secs(SECONDS_BETWEEN_CHECKS));
@@ -50,13 +50,13 @@ pub fn rotate(runtime: &Arc<Runtime>) {
 
 /// Claude refusing a run for the limit is the surest reading there is.
 /// Rotation goes by the usage endpoint, whose kept reading said 86% of an
-/// supplier Claude had already stopped, and every chef de partie sat waiting
-/// hours for a reset with another supplier barely touched. So a refusal moves
-/// her to the stored supplier with the most room, when one has any and she
+/// account Claude had already stopped, and every chef de partie sat waiting
+/// hours for a reset with another account barely touched. So a refusal moves
+/// her to the stored account with the most room, when one has any and she
 /// rotates at all. Runs hit the limit together: one switch answers all of
-/// them for a while, or the next would switch back to the spent supplier on
+/// them for a while, or the next would switch back to the spent account on
 /// its stale reading.
-pub fn moved_off_the_spent_supplier() -> bool {
+pub fn moved_off_the_spent_account() -> bool {
     static LAST_SWITCH: Mutex<Option<Instant>> = Mutex::new(None);
     if !ROTATING.load(Ordering::Relaxed) {
         return false;
@@ -77,7 +77,7 @@ pub fn moved_off_the_spent_supplier() -> bool {
         .min_by(|(_, one), (_, other)| one.total_cmp(other));
     match roomiest {
         Some((report, used)) if ax::account::switch(&report.account.email).is_ok() => {
-            logs::event("suppliers.switched_at_the_limit", json!({ "to": report.account.email, "used": used }));
+            logs::event("accounts.switched_at_the_limit", json!({ "to": report.account.email, "used": used }));
             *last = Some(Instant::now());
             true
         }

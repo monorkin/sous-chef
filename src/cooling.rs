@@ -120,7 +120,7 @@ fn compact_before_it_goes_cold(runtime: &Arc<Runtime>, conversation: &str, sessi
 }
 
 /// The last line of defence, for what compacting while still cached missed
-/// — a compaction the supplier had no room for, a crash. A session that went
+/// — a compaction the account had no room for, a crash. A session that went
 /// cold while it was big is compacted before the turn that wakes it. That
 /// pays to load the whole session only to throw it away, which is why it
 /// comes last; it still beats the turn reading all of it on every call.
@@ -157,7 +157,7 @@ pub fn compact_the_warm() {
 
 /// Every chef de partie's session worth compacting, a few at a time: those
 /// still cached first, since they cost least, then the rest by how recently
-/// they were used. Once the supplier says it has nothing left, the rest stay
+/// they were used. Once the account says it has nothing left, the rest stay
 /// as they are. How many were compacted.
 pub fn compact_every_chef_de_partie() -> usize {
     let mut sessions = worth_compacting();

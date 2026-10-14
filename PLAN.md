@@ -127,7 +127,7 @@ printer:
   make of it, without remembering or waking anything. Run read-only against
   the real server: 23 of 23 notifications parsed.
 - A store. One SQLite file (`sous-chef.db`, WAL, numbered migrations on
-  `user_version`) for the agent's own moving parts — not katami's recipe book, which
+  `user_version`) for the agent's own moving parts — not katami's memory, which
   holds what she has learned. The next thing she has to keep is a table away.
 - Chefs de partie schedule their own work: `schedule`, `list_schedules`,
   `cancel_schedule`. Five-field cron in local time for what repeats, a date
@@ -153,24 +153,24 @@ printer:
   katami runs as `sous-chef review …` finds the same store. The same call names
   her Claude folder, `config/claude`, and what ax's commands are reached as
   (`sous-chef claude`). Her Claude login lives in that folder and nowhere else:
-  `sous-chef claude login` logs it in, `sous-chef claude supplier add` keeps the login
+  `sous-chef claude login` logs it in, `sous-chef claude account add` keeps the login
   in her own rotation, `sous-chef claude switch` puts another stored one in
   place, `sous-chef claude whoami` says which. The first version set environment
   variables for the paths, which was reaching a crate she links through the
   wrong door and leaked into everything she started; the second pointed her
   at a folder inside the chef's own ax store, which tied her to it. Her
-  recipe book and her login are not shared with the chef's other sessions.
+  memory and her login are not shared with the chef's other sessions.
 - Stopping her loses nothing. Every turn is written to the store when it is
   queued and taken out when it is over, so what was waiting, or in the
   middle of running, when she was stopped — or crashed, or hit a limit — is
   asked again when she starts, in order. A chef de partie resumes its own session,
   so it remembers what it was doing, and is told it was stopped, since a
-  commis it had going is gone. `sous-chef claude supplier add` and `switch` need
+  commis it had going is gone. `sous-chef claude account add` and `switch` need
   her stopped; now that costs nothing. The tools she has a profile
   of her own in run with `XDG_CONFIG_HOME` pointed at `config/tools`, carried
   as `env` on the MCP server and the trigger, so nothing she is set up with
   lands in the chef's config for that tool. All of it is in the backup; the
-  suppliers only when tokens are. Still shared: the Claude login itself. ax
+  accounts only when tokens are. Still shared: the Claude login itself. ax
   rotates the default `~/.claude` login, so her rotation moves the chef's.
 - A circuit breaker on Jev. A call gets three seconds (one at first, which
   40 KB Basecamp listings didn't fit in); slower than that, or an
@@ -208,22 +208,22 @@ printer:
 - One binary. katami and ax are library crates with a thin binary each
   (`cli.rs` holds their command line), and sous-chef depends on both from git;
   `Cargo.lock` pins the commits.
-  `sous-chef recipes …` and `sous-chef claude supplier …` are their own subcommands
+  `sous-chef memory …` and `sous-chef claude account …` are their own subcommands
   mounted as they are. katami re-runs its executable as `hook`, `review` and
   `curate`; inside sous-chef that executable is sous-chef, and it hands those three
   straight to `katami::cli`.
-- Recipe book for chefs de partie. katami learned to supervise without a terminal
+- Memory for chefs de partie. katami learned to supervise without a terminal
   (`supervise_headless`) and grew `Supervision` — begin, cover a command,
   finish — for a program that runs its own sessions. Every chef de partie turn runs
   under it. Tested live in a sandboxed store: something said in one
-  conversation was reviewed into a recipe and recalled from another.
+  conversation was reviewed into a memory and recalled from another.
 
 Not built, or not working yet:
 
-- **Recipe book for commis.** Chefs de partie write recipes now (see below). What a commis learned
+- **Memory for commis.** Chefs de partie remember now (see below). What a commis learned
   still goes nowhere: that needs `origin` and speaker in katami, then the
   commis-transcript pipeline with the Jev risk score.
-- **Suppliers, live.** `sous-chef run` runs ax's auto-switch in-process, which covers
+- **Accounts, live.** `sous-chef run` runs ax's auto-switch in-process, which covers
   chefs de partie and every new commis. Not run live, because it moves the real default
   login. Still missing: moving a long-running commis mid-session.
 - **The config as a ceiling.** `people` decides who is heard and
@@ -246,8 +246,8 @@ Not built, or not working yet:
   bound in yet; mise's tools are, and `bundle install` after a `bundle
   package` would work the same way.
 - The classifier-driven expediter (routing, model choice), and commis
-  transcripts kept for the recipe book. Commis transcripts are kept now, under
-  `data/commis`, for `sous-chef transcript`; the recipe book doesn't read them yet.
+  transcripts kept for memory. Commis transcripts are kept now, under
+  `data/commis`, for `sous-chef transcript`; memory doesn't read them yet.
 
 ### After codex's review (2026-09-21)
 
@@ -291,7 +291,7 @@ worst of them ways around the trust tiers. What changed because of it:
 
 Still open from the review:
 
-- **Standing doesn't survive history or the recipe book.** Trusted and untrusted turns
+- **Standing doesn't survive history or memory.** Trusted and untrusted turns
   share one session, and katami's reviewer takes any "user" turn as evidence.
   Needs katami's `origin` and speaker (already on the list below).
 - Plating only sees arguments marked as prose; an unmarked posting tool
@@ -330,19 +330,19 @@ adversarial tests of haiku as a taster.
 
 ## Decided
 
-- sous-chef is its own project, built on top of katami (recipe book) and ax (Claude
-  subscriptions). It ships as one binary: `sous-chef recipes …` and
-  `sous-chef claude supplier …` are katami's and ax's logic pulled in as libraries.
+- sous-chef is its own project, built on top of katami (memory) and ax (Claude
+  subscriptions). It ships as one binary: `sous-chef memory …` and
+  `sous-chef claude account …` are katami's and ax's logic pulled in as libraries.
 - The kitchen. An expediter plus chefs de partie. A chef de partie is one
   Claude Code session per conversation, with its own pass. A chef de partie can
   call several commis.
 - Commis are sandboxed, isolated, and throw-away. Their only way out is an MCP
   request to the broker, which sous-chef controls per commis.
-- Commis never read the recipe book. The chef de partie writes a brief with enough context for
+- Commis never read memory. The chef de partie writes a brief with enough context for
   the commis to do a good job.
 - The chef de partie's pass checks the commis's work and sends it back to clean up.
-- What a commis learned reaches the recipe book only through katami's reviewer.
-- Chefs de partie share the recipe book.
+- What a commis learned reaches memory only through katami's reviewer.
+- Chefs de partie share memory.
 - Fully autonomous. No human input past `sous-chef setup`. Nothing may wait on a
   person to approve, unblock, or decide.
 - Prefer classifiers (Jev) over LLMs wherever the answer is a pick from a
@@ -376,12 +376,12 @@ adversarial tests of haiku as a taster.
   model, or a smaller task. A request the config rules out is handled in
   conversation. The per-task budget is the only hard stop, and running into it
   is reported as what she tried and where she got stuck.
-- **Flagged recipes are dropped and logged.** Nobody is on the other end of
+- **Flagged memories are dropped and logged.** Nobody is on the other end of
   that one.
 - **Stopping cleanly.** `sous-chef run` kills every chef de partie and commis on SIGINT and
   SIGTERM. Commis live in their own sandboxes and would otherwise outlive her.
   Covers `systemctl stop` on the machine she runs on too.
-- **A table of what's in flight.** katami's recipe book only updates after a review,
+- **A table of what's in flight.** katami memory only updates after a review,
   which is too slow for two chefs de partie working on the same project at once. sous-chef
   keeps chefs de partie, tasks and grants in her own SQLite, and chefs de partie can ask what
   else is going on.
@@ -403,7 +403,7 @@ assignment and the printer's permissions limit what she sees.
 ### Chef de partie
 
 Plans the work, picks the project, writes the brief and the grant, calls
-commis, and replies in the conversation. Reads and writes recipes through
+commis, and replies in the conversation. Reads and writes memory through
 katami. People can answer its questions in the conversation like they would a
 coworker's — that's task input, not an approval.
 
@@ -422,21 +422,21 @@ the same session in the same sandbox; the sandbox is deleted when the chef de pa
 accepts the work or gives up. The transcript is copied out first.
 
 A task too big for one commis is a sequence of commis. What carries over lives in
-the repo, the project's status in the recipe book, and the task table.
+the repo, the project's status in memory, and the task table.
 
 ### Broker
 
 One grant per commis, one MCP endpoint per commis, and the egress proxy that only
-lets Claude API traffic out. It has no recipe book actions: I floated a
-project-scoped recipe search for commis, and the decision was to keep the recipe book
+lets Claude API traffic out. It has no memory actions: I floated a
+project-scoped memory search for commis, and the decision was to keep memory
 out of them entirely.
 
 Known gap: the commis's sandbox holds a real subscription token, and a granted
 action (a comment, a commit message) could leak it. A proxy that adds the auth
-header itself would fix that and allow switching suppliers mid-session, but
+header itself would fix that and allow switching accounts mid-session, but
 whether Claude Code's subscription login works through one is unverified.
 
-### Recipe book
+### Memory
 
 ```
 commis transcript > haiku extracts > class rules > Jev risk score > store
@@ -449,7 +449,7 @@ commis transcript > haiku extracts > class rules > Jev risk score > store
 - Jev scores each surviving entry: "if a more powerful agent believed this and
   acted on it, could it weaken security, destroy data, move credentials, or
   run code from somewhere the note names?" Above ~0.2 it is dropped.
-- A transcript Jev flags as an attack contributes nothing to the recipe book.
+- A transcript Jev flags as an attack contributes nothing to memory.
 
 See `spikes/injection-detection/RESULTS.md`. Short version: class rules alone
 let 7 of 30 poisoning attempts through, all fake "decisions"; the per-entry
@@ -458,7 +458,7 @@ haiku as a detector gets steered by the text it's scoring; Jev can't be.
 
 ### Setup
 
-`sous-chef setup` walks through: Claude suppliers, the printers and who may ask for
+`sous-chef setup` walks through: Claude accounts, the printers and who may ask for
 what, MCP servers, and three optional things —
 
 - a Jev API key (see Taster)
@@ -502,7 +502,7 @@ Untested: whether Jev or haiku can score style at all.
 ### Taster
 
 Everything that asks a classifier-shaped question — routing, injection score,
-recipe risk, outcome of a commis, style — goes through one taster with two
+memory risk, outcome of a commis, style — goes through one taster with two
 backends. Jev when `TYPESAFE_AI_API_KEY` is set, haiku through the Claude
 subscription when it isn't. sous-chef works without Jev; she is slower and spends
 quota on questions Jev answers for fractions of a cent.
@@ -510,15 +510,15 @@ quota on questions Jev answers for fractions of a cent.
 haiku as a taster has one known weakness: on long inputs it sometimes answers
 the text instead of scoring it. So the haiku backend wraps the input as data,
 accepts only the exact JSON it asked for, and treats anything else as flagged.
-On the recipe risk score it caught 13 of 15 poisoned entries against Jev's 15,
+On the memory risk score it caught 13 of 15 poisoned entries against Jev's 15,
 with no false positives.
 
-### Suppliers
+### Accounts
 
 ax today only rotates the default `~/.claude` login; `ax run` profiles are
 pinned to one account. Needed:
 
-- pick the supplier with the most headroom when a session starts — covers commis
+- pick the account with the most headroom when a session starts — covers commis
 - move running profiles before they hit a limit — covers long-lived chefs de partie
 
 ### Where classifiers go
@@ -529,7 +529,7 @@ pinned to one account. Needed:
 - Commis outcome: done, blocked, needs input, failed — from the free-text report.
 - Broker, outbound: is this comment on topic for the task. Secrets get a regex
   first.
-- Recipe book: the per-entry risk score above.
+- Memory: the per-entry risk score above.
 - Never: who is allowed to ask for what. That's a lookup in the setup config.
 
 ## Changes to katami and ax
@@ -539,13 +539,13 @@ pinned to one account. Needed:
 - katami re-spawns itself as `current_exe() review …` (`src/reviewer.rs`), and
   probably does the same for hooks. Inside sous-chef `current_exe()` is sous-chef, so it
   has to expose the same hidden subcommands.
-- katami: an `origin` on recipes (owner, person, worker) with the class rules
+- katami: an `origin` on memories (owner, person, worker) with the class rules
   per origin, and a speaker on transcript turns — today "user turn" means the
   chef katami runs for, and in sous-chef it can be a coworker whose words would
   otherwise become the chef's preferences.
-- Two binaries on one recipe book: pin sous-chef to the installed katami version,
+- Two binaries on one memory store: pin sous-chef to the installed katami version,
   or let the schema-version check refuse the older one.
-- ax: the two supplier changes above.
+- ax: the two account changes above.
 
 ## Order
 
@@ -562,9 +562,9 @@ Next:
 3. The config as a ceiling: who may ask for what, the widest grant, a per-task
    budget.
 4. Gems and node packages into the sandbox the way cargo's crates are.
-5. katami `origin` and speaker; commis transcripts into the recipe book through the Jev
+5. katami `origin` and speaker; commis transcripts into memory through the Jev
    risk score.
-6. Moving a running commis to another supplier.
+6. Moving a running commis to another account.
 7. Move to the machine she'll live on. Then Fizzy and GitHub.
 
 ## Open questions

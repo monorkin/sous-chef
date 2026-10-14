@@ -62,7 +62,7 @@ impl Tool for CallCommis {
     }
 
     fn description(&self) -> &str {
-        "Call a commis, a sandboxed worker, into one project folder and give it a brief. It can read and write that folder and nothing else, has no network and none of your recipe book, so the brief must carry everything it needs to know. It has the languages installed here and builds from what is already fetched, so when the work needs a build, either fetch the project's dependencies yourself first (cargo fetch, bundle install, npm ci) or grant it the registries and say so in the brief. Its builds go to a folder of their own, not the project's. It works on its own: this answers at once with its id, and when it's done the pass checks the work against your brief and the verdict comes to you as a message of its own, in a turn of its own. Then send_back or dismiss it. Only one commis works in a folder at a time, and you may have only a few at work — `commis` says how many and which; past that this is refused, so wait for a verdict or dismiss one. A commis takes minutes, and whoever asked hears nothing from it, so the first commis of a turn is refused until you have told them what you're about to do, in one line, where they asked — one line, not an account of your reasoning. Only a turn nobody new is waiting on — one you scheduled for yourself, or one a commis's verdict woke, where they already heard you have it — calls a commis without a word, with `quietly`."
+        "Call a commis, a sandboxed worker, into one project folder and give it a brief. It can read and write that folder and nothing else, has no network and none of your memory, so the brief must carry everything it needs to know. It has the languages installed here and builds from what is already fetched, so when the work needs a build, either fetch the project's dependencies yourself first (cargo fetch, bundle install, npm ci) or grant it the registries and say so in the brief. Its builds go to a folder of their own, not the project's. It works on its own: this answers at once with its id, and when it's done the pass checks the work against your brief and the verdict comes to you as a message of its own, in a turn of its own. Then send_back or dismiss it. Only one commis works in a folder at a time, and you may have only a few at work — `commis` says how many and which; past that this is refused, so wait for a verdict or dismiss one. A commis takes minutes, and whoever asked hears nothing from it, so the first commis of a turn is refused until you have told them what you're about to do, in one line, where they asked — one line, not an account of your reasoning. Only a turn nobody new is waiting on — one you scheduled for yourself, or one a commis's verdict woke, where they already heard you have it — calls a commis without a word, with `quietly`."
     }
 
     fn input_schema(&self) -> Value {
@@ -195,7 +195,7 @@ impl Tool for SendBack {
     }
 }
 
-/// How her Claude allowance is doing, read from ax: each supplier she can
+/// How her Claude allowance is doing, read from ax: each account she can
 /// work as, its session, weekly and Fable limits, and when they reset.
 pub struct ClaudeUsage;
 
@@ -205,7 +205,7 @@ impl Tool for ClaudeUsage {
     }
 
     fn description(&self) -> &str {
-        "How much of your Claude allowance is used on each supplier you can work as — the session, weekly and Fable limits and when each resets — and which supplier you're on now. Use it when someone asks how your tokens or limits are doing, and answer in your own words."
+        "How much of your Claude allowance is used on each account you can work as — the session, weekly and Fable limits and when each resets — and which account you're on now. Use it when someone asks how your tokens or limits are doing, and answer in your own words."
     }
 
     fn input_schema(&self) -> Value {
@@ -215,7 +215,7 @@ impl Tool for ClaudeUsage {
     fn call(&self, _arguments: &Value) -> Result<String> {
         let reports = ax::usage::of_every_account()?;
         if reports.is_empty() {
-            Ok("No suppliers are stored for you, so there is nothing to read usage from. `sous-chef claude supplier add` stores the one you're logged in as.".to_string())
+            Ok("No accounts are stored for you, so there is nothing to read usage from. `sous-chef claude account add` stores the one you're logged in as.".to_string())
         } else {
             Ok(ax::usage::described(&reports, ax::clock::now_seconds()))
         }

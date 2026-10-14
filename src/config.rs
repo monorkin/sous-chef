@@ -40,8 +40,8 @@ pub struct Config {
     pub jev_url: Option<String>,
     /// Set to false when something else already runs `ax auto-switch`.
     #[serde(default = "yes", skip_serializing_if = "is_yes")]
-    #[serde(alias = "rotate_accounts")]
-    pub rotate_suppliers: bool,
+    #[serde(alias = "rotate_suppliers")]
+    pub rotate_accounts: bool,
     /// How long one run of a commis or a pass may take before it is
     /// stopped. A discarded commis is an hour of work nobody ever hears
     /// about, so this is set for the long jobs, not the common ones.
@@ -178,7 +178,7 @@ impl Default for Config {
             printers: BTreeMap::new(),
             people: BTreeMap::new(),
             jev_url: None,
-            rotate_suppliers: true,
+            rotate_accounts: true,
             minutes_per_run: three_hours(),
             minutes_per_chef_de_partie_turn: six_hours(),
             commis_per_chef_de_partie: one(),
@@ -450,11 +450,11 @@ mod tests {
     #[test]
     fn a_config_written_with_the_old_keys_still_loads() {
         let config: Config = serde_json::from_str(
-            r#"{ "rotate_accounts": false, "minutes_per_thread_turn": 5, "hands_per_thread": 2,
+            r#"{ "rotate_suppliers": false, "minutes_per_thread_turn": 5, "hands_per_thread": 2,
                  "models": { "threads": "sonnet", "hands": "haiku", "reviewers": "haiku", "screening": "haiku", "editing": "sonnet" } }"#,
         )
         .unwrap();
-        assert!(!config.rotate_suppliers);
+        assert!(!config.rotate_accounts);
         assert_eq!(config.minutes_per_chef_de_partie_turn, 5);
         assert_eq!(config.commis_per_chef_de_partie, 2);
         assert_eq!(

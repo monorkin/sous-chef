@@ -226,16 +226,16 @@ pub fn says_the_login_went_stale(error: &anyhow::Error) -> bool {
 /// What a commis's or a pass's session is told when it goes on in the
 /// same session on a fresh copy of her login.
 pub const CARRY_ON: &str = "Your run was cut off part way — the login it ran on was refreshed underneath it — and you have just been started again in the same session. Nothing you did is lost. Look at where things stand and carry on from there; when you are done, report as you would have.";
-pub const ON_ANOTHER_SUPPLIER: &str = "Your run was cut off part way — the Claude allowance of the supplier it ran on is used up — and you have just been started again in the same session on another supplier. Nothing you did is lost. The limit message in your history is about that supplier, not about anything in the project. Look at where things stand and carry on from there; when you are done, report as you would have.";
+pub const ON_ANOTHER_ACCOUNT: &str = "Your run was cut off part way — the Claude allowance of the account it ran on is used up — and you have just been started again in the same session on another account. Nothing you did is lost. The limit message in your history is about that account, not about anything in the project. Look at where things stand and carry on from there; when you are done, report as you would have.";
 
 /// A commis's or a pass's run, and once more on her current login when the
 /// one it ran on can't go on and hers can: refreshed underneath it, or spent
-/// on a supplier she has since moved off. A commis keeps the copy it started
-/// with, so when she switched suppliers every commis already running went on
+/// on an account she has since moved off. A commis keeps the copy it started
+/// with, so when she switched accounts every commis already running went on
 /// to the spent one's limit, and its chef de partie told people she was out of
 /// Claude for hours. The run gets nothing the first time, and what to tell
 /// its resumed session the second. `refresh` copies her login in and says
-/// whether it is a different one; it is told when the supplier was spent, so
+/// whether it is a different one; it is told when the account was spent, so
 /// it can move her off it first.
 pub fn again_on_her_current_login<T>(refresh: impl FnOnce(bool) -> Result<bool>, mut run: impl FnMut(Option<&str>) -> Result<T>) -> Result<T> {
     match run(None) {
@@ -245,7 +245,7 @@ pub fn again_on_her_current_login<T>(refresh: impl FnOnce(bool) -> Result<bool>,
         }
         Err(error) if error.downcast_ref::<OutOfQuota>().is_some() => {
             if refresh(true)? {
-                run(Some(ON_ANOTHER_SUPPLIER))
+                run(Some(ON_ANOTHER_ACCOUNT))
             } else {
                 Err(error)
             }
@@ -411,7 +411,7 @@ pub fn log_in() -> Result<()> {
         bail!("claude didn't finish logging in");
     }
     println!("{}", login());
-    println!("`sous-chef claude supplier add --alias <name>` keeps this login in her rotation.");
+    println!("`sous-chef claude account add --alias <name>` keeps this login in the rotation.");
     Ok(())
 }
 
@@ -419,8 +419,8 @@ pub fn log_in() -> Result<()> {
 /// config folder she works from, which is the allowance she is spending.
 pub fn login() -> String {
     let home = paths::claude_config_home();
-    let supplier = read_json(&home.join(".claude.json")).ok().map(|it| it["oauthAccount"].clone()).unwrap_or_default();
-    match supplier["emailAddress"].as_str() {
+    let account = read_json(&home.join(".claude.json")).ok().map(|it| it["oauthAccount"].clone()).unwrap_or_default();
+    match account["emailAddress"].as_str() {
         Some(address) => format!("{address} ({})", home.display()),
         None => format!("nobody is logged in under {}", home.display()),
     }
@@ -616,13 +616,13 @@ mod tests {
     }
 
     #[test]
-    fn a_run_on_a_spent_supplier_goes_on_on_hers_once_she_has_moved_off_it() {
+    fn a_run_on_a_spent_account_goes_on_on_hers_once_she_has_moved_off_it() {
         let spent = || anyhow::Error::new(OutOfQuota { said: "You've hit your session limit · resets 7pm".to_string() });
 
         let mut told = None;
         let moved = again_on_her_current_login(
             |was_spent| {
-                assert!(was_spent, "the refresh is told the supplier was spent, so it can move her off it");
+                assert!(was_spent, "the refresh is told the account was spent, so it can move her off it");
                 Ok(true)
             },
             |again| match again {
@@ -634,10 +634,10 @@ mod tests {
             },
         );
         assert_eq!(moved.unwrap(), "verdict");
-        assert_eq!(told.as_deref(), Some(ON_ANOTHER_SUPPLIER));
+        assert_eq!(told.as_deref(), Some(ON_ANOTHER_ACCOUNT));
 
         let nowhere_to_go = again_on_her_current_login(|_| Ok(false), |again| -> Result<()> {
-            assert!(again.is_none(), "with no other supplier there is no second go");
+            assert!(again.is_none(), "with no other account there is no second go");
             Err(spent())
         });
         assert!(nowhere_to_go.unwrap_err().downcast_ref::<OutOfQuota>().is_some(), "and the limit is what is reported");

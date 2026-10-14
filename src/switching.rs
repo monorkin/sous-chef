@@ -1,15 +1,15 @@
-//! Moving to another Claude supplier without carrying full sessions over.
+//! Moving to another Claude account without carrying full sessions over.
 //!
-//! A prompt cache belongs to the supplier that wrote it, so after a switch
+//! A prompt cache belongs to the account that wrote it, so after a switch
 //! every chef de partie's next turn writes its whole session again, on the
-//! new supplier. A planned switch therefore winds down first, on the old
-//! supplier while it still has room: new turns wait, the turns running are
+//! new account. A planned switch therefore winds down first, on the old
+//! account while it still has room: new turns wait, the turns running are
 //! let finish, each commis at work is stopped and asked for a short account
 //! of where it stands, and every chef de partie is compacted. Then the
 //! switch, and what waited goes on — the commis' accounts first among it.
 //!
 //! A switch because Claude refused a run for the limit can't wind down: the
-//! old supplier has nothing left to do it with.
+//! old account has nothing left to do it with.
 
 use serde_json::json;
 use std::sync::{Arc, Condvar, Mutex};
@@ -29,13 +29,13 @@ static WOUND_UP: Condvar = Condvar::new();
 /// is done. Turns that come meanwhile wait, and go on when it returns.
 pub fn wind_down_then<T>(runtime: &Arc<Runtime>, switch: impl FnOnce() -> T) -> T {
     *WINDING_DOWN.lock().unwrap() = true;
-    logs::event("suppliers.winding_down", json!({}));
+    logs::event("accounts.winding_down", json!({}));
 
     wait_for(LONGEST_WAIT_FOR_TURNS, || runtime.cooling.running().is_empty());
     let stopped = runtime.brigade.stop_all_for_a_switch();
     wait_for(LONGEST_WAIT_FOR_COMMIS, || !runtime.brigade.are_working());
     let compacted = cooling::compact_every_chef_de_partie();
-    logs::event("suppliers.wound_down", json!({ "commis_stopped": stopped, "chefs_de_partie_compacted": compacted }));
+    logs::event("accounts.wound_down", json!({ "commis_stopped": stopped, "chefs_de_partie_compacted": compacted }));
 
     let switched = switch();
     *WINDING_DOWN.lock().unwrap() = false;
@@ -44,7 +44,7 @@ pub fn wind_down_then<T>(runtime: &Arc<Runtime>, switch: impl FnOnce() -> T) -> 
 }
 
 /// Where a turn waits while she winds down, so nothing new starts on the
-/// supplier she is leaving.
+/// account she is leaving.
 pub fn wait_while_winding_down() {
     let mut winding_down = WINDING_DOWN.lock().unwrap();
     while *winding_down {

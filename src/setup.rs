@@ -302,7 +302,7 @@ A tool argument that carries text for people goes through the style first:
     sous-chef mcp prose github create_issue_comment body
 
 More Claude subscriptions for {agent} to rotate between:
-    sous-chef claude supplier add
+    sous-chef claude account add
 "
         ))
     }

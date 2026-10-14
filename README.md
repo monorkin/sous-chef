@@ -102,14 +102,14 @@ sous-chef station list
 sous-chef station check server
 sous-chef station remove server
 
-# Suppliers: the Claude subscriptions it rotates between
-sous-chef claude supplier add                  # add the current Claude Code account to the rotation
-sous-chef claude supplier remove email@example.com
-sous-chef claude supplier list
+# Claude accounts: the subscriptions it rotates between
+sous-chef claude account add                   # add the current Claude Code account to the rotation
+sous-chef claude account remove email@example.com
+sous-chef claude account list
 
-# Recipe book
-sous-chef recipes list
-sous-chef recipes archive [recipe-id]
+# Memory
+sous-chef memory list
+sous-chef memory archive [memory-id]
 ```
 
 ## The kitchen
@@ -129,8 +129,6 @@ the code, the config, the logs and the commands.
 | **The pass** | Checks a commis's work against the brief before the chef de partie hears about it, and sends back only a verdict. | Every plate is checked there before it goes out. |
 | **Taster** | Screens what comes in for manipulation, and scores the style of what goes out (Jev with a key, haiku without). | Tastes everything before it's served or used. |
 | **Plating** | Restyles outgoing prose to your style before it is posted, without changing what it says. | Makes a dish presentable without changing the dish. |
-| **Recipe book** | What the agent has learned, kept by katami. One thing learned is a recipe. | What the kitchen has learned. |
-| **Suppliers** | The Claude subscriptions the agent rotates between. | Switched when one runs out. |
 
 ## Architecture
 
@@ -171,7 +169,7 @@ broker arbitrates.
 |  |           and Claude API traffic                             |  |
 |  +---+------------^---------------+------+------^------+------^-+  |
 |      |            |               |      |      |      |      |    |
-|      |            |  +- RECIPES --v---+  |      |      |      |    |
+|      |            |  +- MEMORY ---v---+  |      |      |      |    |
 |      |            |  | transcript >   |  |      |      |      |    |
 |      |            |  | extract > rules|  |      |      |      |    |
 |      |            |  | > risk > store |  |      |      |      |    |

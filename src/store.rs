@@ -3,7 +3,7 @@
 //! working on, and the messages they send each other. One SQLite file, so a
 //! restart loses nothing and the next thing it needs to keep is a table away.
 //!
-//! This is not katami's recipe book. That holds durable facts and is shared
+//! This is not katami's memory. That holds durable facts and is shared
 //! with every other session on the machine; this holds sous-chef's own moving
 //! parts.
 //!
