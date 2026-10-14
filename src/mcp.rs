@@ -1,6 +1,6 @@
-//! The MCP servers Anna was given, and the tools they bring.
+//! The MCP servers she was given, and the tools they bring.
 //!
-//! Integrations aren't built in: `anna mcp add basecamp -- basecamp mcp` and
+//! Integrations aren't built in: `sous-chef mcp add basecamp -- basecamp mcp` and
 //! the broker starts that server, lists its tools, and offers them to
 //! sessions as its own. No session talks to a server directly, which is what
 //! lets two things happen to every call. On the way out, arguments marked as
@@ -40,7 +40,7 @@ struct Offered {
     /// a server added today has no prose marked yet, and without this every
     /// one of its tools — posting ones too — could be handed to a hand.
     only_reads: bool,
-    /// The server acts as the person Anna works for, not as her.
+    /// The server acts as the person she works for, not as her.
     trusted_only: bool,
     server: Arc<Mutex<Server>>,
     editor: Arc<Editor>,
@@ -84,7 +84,7 @@ impl Catalog {
         Catalog { tools, servers }
     }
 
-    /// A call Anna makes herself — polling a source, answering in a
+    /// A call she makes herself — polling a source, answering in a
     /// conversation — rather than one a session asked for. Nothing is
     /// restyled or screened here; the caller does what its text needs.
     pub fn call(&self, server: &str, tool: &str, arguments: &Value) -> Result<String> {
@@ -97,7 +97,7 @@ impl Catalog {
     }
 
     /// What a thread is offered. A turn on the word of someone who isn't
-    /// trusted can't use the tools of a server that acts as the person Anna
+    /// trusted can't use the tools of a server that acts as the person she
     /// works for: they could otherwise have her do things in that person's
     /// name.
     pub fn for_standing(&self, standing: Standing, sent_back: &Arc<SentBack>, spoke: &Arc<AtomicBool>) -> Vec<Box<dyn Tool>> {
@@ -360,7 +360,8 @@ mod tests {
 
     #[test]
     fn a_turn_has_spoken_once_something_for_people_went_out_through_a_tool() {
-        let judge = Arc::new(Judge::claude("haiku"));
+        // Both answers screened clear, so neither is held back
+        let judge = Arc::new(crate::judge::answering(&[0.0, 0.0]));
         let server = Arc::new(Mutex::new(Server::start(&fake_server()).unwrap()));
         let offered = |prose_arguments: Vec<String>| {
             Arc::new(Offered {
