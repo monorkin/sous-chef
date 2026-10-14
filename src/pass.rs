@@ -20,6 +20,7 @@ use crate::commis::{self, Commis};
 use crate::logs;
 use crate::paths;
 use crate::sandbox::{self, Outside, Sandbox};
+use crate::station_work::Forwarded;
 use crate::suppliers;
 use crate::transcripts;
 
@@ -58,19 +59,33 @@ pub fn check(commis: &Commis, brief: &str, report: &str, outside: &Outside, star
     // in a session of its own. One whose login went stale, or whose supplier
     // was spent while she has another, goes on in the same session: a long
     // check is too much to throw away with the commis's work.
+    let name = directory.file_name().unwrap_or_default().to_string_lossy().into_owned();
     let outcome = claude::on_each_model(&outside.models.pass, |model, _| {
         let session = claude::random_session_id()?;
-        let command = |continuing: bool| -> Result<std::process::Command> {
-            let mut command = sandbox.claude(&claude::binary()?);
-            command.args(["--dangerously-skip-permissions", "--strict-mcp-config", "--tools", sandbox.tools()]);
-            command.args(["--model", model]);
-            command.args(["--append-system-prompt", &commis::what_it_can_reach(commis.services(), false)]);
-            if continuing {
-                command.args(["--resume", &session]);
-            } else {
-                command.args(["--session-id", &session]);
+        let arguments = |continuing: bool| {
+            let mut arguments = vec!["--model".to_string(), model.to_string()];
+            arguments.extend(["--append-system-prompt".to_string(), commis::what_it_can_reach(commis.ports(), false)]);
+            arguments.extend([if continuing { "--resume" } else { "--session-id" }.to_string(), session.clone()]);
+            arguments
+        };
+        // At the station the commis worked at, on the branch as it left it
+        let round = |continuing: bool, told: &str| -> Result<claude::Reply> {
+            match commis.at() {
+                None => {
+                    let mut command = sandbox.claude(&claude::binary()?);
+                    command.args(["--dangerously-skip-permissions", "--strict-mcp-config", "--tools", sandbox.tools()]);
+                    command.args(arguments(continuing));
+                    claude::reply_of(&mut command, told, outside.time_limit, Some(started))
+                }
+                Some(at) => {
+                    at.send_session(&directory, &name)?;
+                    let forwarded = Forwarded { proxy: outside.proxy_socket.clone(), broker: None, registries: None };
+                    let order = at.order(&name, false, commis.ports(), &forwarded, outside, arguments(continuing))?;
+                    let reply = claude::reply_of(&mut at.command(&order, &forwarded)?, told, outside.time_limit, Some(started));
+                    at.bring_back_session(&directory, &name)?;
+                    reply
+                }
             }
-            Ok(command)
         };
         let refresh = |spent: bool| {
             if spent {
@@ -80,12 +95,15 @@ pub fn check(commis: &Commis, brief: &str, report: &str, outside: &Outside, star
             claude::refresh_commis_login(&directory.join("profile"))
         };
         claude::again_on_her_current_login(refresh, |again| match again {
-            Some(told_again) => claude::reply_of(&mut command(true)?, told_again, outside.time_limit, Some(started)),
-            None => claude::reply_of(&mut command(false)?, &prompt(brief, report), outside.time_limit, Some(started)),
+            Some(told_again) => round(true, told_again),
+            None => round(false, &prompt(brief, report)),
         })
     });
     transcripts::keep(&directory.join("profile"), commis_id, true);
     let _ = fs::remove_dir_all(&directory);
+    if let Some(at) = commis.at() {
+        at.forget_session(&name);
+    }
 
     let verdict = verdict_in(&outcome?.result)?;
     logs::event("pass.finished", json!({ "commis": commis_id, "accepted": verdict.accepted }));

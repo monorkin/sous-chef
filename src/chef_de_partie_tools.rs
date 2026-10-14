@@ -5,6 +5,7 @@
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,6 +16,7 @@ use crate::commis::Commis;
 use crate::held::ReadHeldBack;
 use crate::kitchen::Kitchen;
 use crate::plating::{Plating, SentBack};
+use crate::station::Station;
 
 pub struct Reply {
     pub conversation: Arc<dyn Conversation>,
@@ -64,7 +66,7 @@ impl Tool for CallCommis {
     }
 
     fn input_schema(&self) -> Value {
-        json!({
+        let mut schema = json!({
             "type": "object",
             "properties": {
                 "project": { "type": "string", "description": "Absolute path of the project folder" },
@@ -89,7 +91,11 @@ impl Tool for CallCommis {
                 },
             },
             "required": ["project", "brief"],
-        })
+        });
+        if let Some(station) = station_property(&self.kitchen.runtime.config.stations) {
+            schema["properties"]["station"] = station;
+        }
+        schema
     }
 
     fn call(&self, arguments: &Value) -> Result<String> {
@@ -109,9 +115,37 @@ impl Tool for CallCommis {
         let project = Path::new(text_of(arguments, "project")?);
         self.kitchen.refuse_if_busy(project)?;
         let registries = arguments["registries"].as_bool().unwrap_or(false);
-        let commis = Commis::start(project, grant, &ports, registries)?;
+        let stations = &runtime.config.stations;
+        let station = match arguments["station"].as_str() {
+            Some(name) => Some((name, stations.get(name).with_context(|| format!("there is no station called {name}"))?)),
+            None => None,
+        };
+        let commis = Commis::start(project, grant, &ports, registries, station)?;
         self.kitchen.start(commis, text_of(arguments, "brief")?)
     }
+}
+
+/// Where a commis can work besides here, and what each place has, for
+/// whoever picks one. Nothing when there is only here.
+fn station_property(stations: &BTreeMap<String, Station>) -> Option<Value> {
+    if stations.is_empty() {
+        return None;
+    }
+    let described: Vec<String> = stations
+        .iter()
+        .map(|(name, station)| {
+            let has = if station.has.is_empty() { String::new() } else { format!(", with {}", station.has.join(", ")) };
+            format!("{name} ({:?} on {}{has})", station.os, station.arch)
+        })
+        .collect();
+    Some(json!({
+        "type": "string",
+        "enum": stations.keys().collect::<Vec<_>>(),
+        "description": format!(
+            "Another machine for the commis to work on, when the work is heavy or needs what only that machine has: {}. Leave it out to work here. At a station the project goes by git, so commit what the commis needs first; services are that station's own ports; and what it commits comes back on top of the project when it's done.",
+            described.join("; ")
+        ),
+    }))
 }
 
 /// Whoever asked hears nothing while a commis runs, so the first commis waits
@@ -236,6 +270,21 @@ impl Tool for ListCommis {
 mod tests {
     use super::*;
     use std::sync::Mutex;
+
+    #[test]
+    fn a_station_is_offered_with_what_it_has_and_only_when_there_is_one() {
+        assert_eq!(station_property(&BTreeMap::new()), None, "with only here, the tool doesn't change");
+
+        let stations = BTreeMap::from([(
+            "server".to_string(),
+            Station { host: "someone@server.example.com".to_string(), os: crate::station::Os::Debian, arch: "x86_64".to_string(), has: vec!["rust".to_string(), "docker".to_string()] },
+        )]);
+        let station = station_property(&stations).unwrap();
+        assert_eq!(station["enum"], json!(["server"]));
+        let described = station["description"].as_str().unwrap();
+        assert!(described.contains("server (Debian on x86_64, with rust, docker)"), "{described}");
+        assert!(described.contains("commit what the commis needs first"));
+    }
 
     struct Recorded {
         said: Mutex<Vec<String>>,

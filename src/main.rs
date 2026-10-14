@@ -48,6 +48,10 @@ mod setup_basecamp;
 mod setup_machine;
 mod setup_tools;
 mod skills;
+mod station;
+mod station_cli;
+mod station_side;
+mod station_work;
 mod store;
 mod suppliers;
 mod switching;
@@ -139,6 +143,11 @@ enum Command {
         #[usage(subcommand)]
         command: McpCommand,
     },
+    /// Manage the machines a commis can work on besides this one
+    Station {
+        #[usage(subcommand)]
+        command: StationCommand,
+    },
     /// Manage what she knows about using a tool before she calls it
     Skill {
         #[usage(subcommand)]
@@ -198,6 +207,28 @@ enum ClaudeCommand {
     },
     /// Who the agent is logged in as right now
     Whoami,
+}
+
+#[derive(Subcommands)]
+enum StationCommand {
+    /// Set up a machine a commis can work on: lets sous-chef's key in, installs what a commis needs, and checks it
+    Add {
+        name: String,
+        /// Whatever ssh takes: user@host, or a name from your ssh config
+        host: String,
+    },
+    /// The machines a commis can work on besides this one
+    List,
+    /// Send a commis to a station to check it still works
+    Check { name: String },
+    /// Forget a station; what was installed there stays
+    Remove { name: String },
+    /// One round of a commis or a pass, as home hands it to a station; not for people to run
+    Run {
+        order: String,
+        #[usage(double_dash = "required")]
+        for_claude: Vec<String>,
+    },
 }
 
 #[derive(Subcommands)]
@@ -297,6 +328,13 @@ fn run(cli: Cli) -> Result<()> {
             McpCommand::List => mcp_cli::list(),
             McpCommand::Remove { name } => mcp_cli::remove(&name),
             McpCommand::Prose { name, tool, argument } => mcp_cli::mark_prose(&name, &tool, &argument),
+        },
+        Command::Station { command } => match command {
+            StationCommand::Add { name, host } => station_cli::add(&name, &host),
+            StationCommand::List => station_cli::list(),
+            StationCommand::Check { name } => station_cli::check_with_a_commis(&name),
+            StationCommand::Remove { name } => station_cli::remove(&name),
+            StationCommand::Run { order, for_claude } => station_side::run(&order, &for_claude),
         },
         Command::Skill { command } => match command {
             SkillCommand::Add { folder } => {

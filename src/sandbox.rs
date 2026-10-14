@@ -188,9 +188,7 @@ impl Sandbox<'_> {
             // started with are its, and what a session needs is set below
             .args(["--unshare-all", "--die-with-parent", "--clearenv"])
             .args(["--ro-bind", "/usr", "/usr"])
-            .args(["--symlink", "usr/bin", "/bin"])
-            .args(["--symlink", "usr/lib", "/lib"])
-            .args(["--symlink", "usr/lib", "/lib64"])
+            .args(top_level_links(Path::new("/")))
             .args(["--proc", "/proc", "--dev", "/dev"])
             .arg("--bind")
             .arg(self.scratch.join("tmp"))
@@ -368,6 +366,22 @@ impl Sandbox<'_> {
     }
 }
 
+/// /bin, /lib and the rest, as the machine itself has them: on Arch /lib64
+/// leads to usr/lib, on Debian to usr/lib64, where the loader every program
+/// starts with is found. A sandbox that guessed got programs that couldn't
+/// start. Only links are made; what isn't a link into /usr stays out.
+fn top_level_links(root: &Path) -> Vec<String> {
+    let mut arguments = Vec::new();
+    for name in ["bin", "sbin", "lib", "lib64", "lib32"] {
+        if let Ok(target) = std::fs::read_link(root.join(name))
+            && target.to_string_lossy().trim_start_matches('/').starts_with("usr/")
+        {
+            arguments.extend(["--symlink".to_string(), target.to_string_lossy().into_owned(), format!("/{name}")]);
+        }
+    }
+    arguments
+}
+
 /// .git becomes its own mount so it can't be renamed out of the way and
 /// replaced, and the parts of it that run code become read-only. A part
 /// that doesn't exist yet is covered with an empty read-only tmpfs so it
@@ -408,6 +422,27 @@ fn repository_holding(project: &Path) -> Option<PathBuf> {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn bin_and_lib_lead_where_they_lead_on_the_machine_itself() {
+        let root = std::env::temp_dir().join(format!("sous-chef-roots-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (arch, debian) = (root.join("arch"), root.join("debian"));
+        fs::create_dir_all(&arch).unwrap();
+        fs::create_dir_all(debian.join("srv")).unwrap();
+        for (name, target) in [("bin", "usr/bin"), ("lib", "usr/lib"), ("lib64", "usr/lib")] {
+            std::os::unix::fs::symlink(target, arch.join(name)).unwrap();
+        }
+        for (name, target) in [("bin", "usr/bin"), ("sbin", "usr/sbin"), ("lib", "usr/lib"), ("lib64", "usr/lib64")] {
+            std::os::unix::fs::symlink(target, debian.join(name)).unwrap();
+        }
+        std::os::unix::fs::symlink("/srv", debian.join("lib32")).unwrap();
+
+        let links = |root: &Path| top_level_links(root).chunks(3).map(|it| format!("{} {}", it[2], it[1])).collect::<Vec<_>>();
+        assert_eq!(links(&arch), ["/bin usr/bin", "/lib usr/lib", "/lib64 usr/lib"]);
+        assert_eq!(links(&debian), ["/bin usr/bin", "/sbin usr/sbin", "/lib usr/lib", "/lib64 usr/lib64"], "Debian's loader is under usr/lib64");
+        fs::remove_dir_all(root).unwrap();
+    }
 
     fn arguments_of(sandbox: &Sandbox) -> Vec<String> {
         sandbox

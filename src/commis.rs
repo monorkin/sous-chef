@@ -18,6 +18,8 @@ use crate::logs;
 use crate::paths;
 use crate::proxy::{self, Bridge, Proxy};
 use crate::sandbox::{self, Outside, Sandbox, Service};
+use crate::station::Station;
+use crate::station_work::{AtStation, Forwarded};
 use crate::suppliers;
 use crate::transcripts;
 
@@ -33,7 +35,11 @@ pub struct Commis {
     session: String,
     begun: bool,
     granted: Option<Endpoint>,
+    ports: Vec<u16>,
+    /// Bridged here for a commis at home; a station bridges its own.
     services: Vec<Service>,
+    /// The station it works at, when it isn't at home.
+    at: Option<AtStation>,
     /// Gone with the commis, and the sockets its services are reached through
     /// with them.
     _bridges: Vec<Bridge>,
@@ -51,8 +57,8 @@ impl Commis {
     /// machine's loopback the commis may reach — a database for its tests —
     /// and only loopback: anything further is the network, which a commis
     /// doesn't have, except the package registries when `registries` says
-    /// so.
-    pub fn start(project: &Path, grant: Vec<Box<dyn Tool>>, ports: &[u16], registries: bool) -> Result<Commis> {
+    /// so. At a station, the ports are the station's own.
+    pub fn start(project: &Path, grant: Vec<Box<dyn Tool>>, ports: &[u16], registries: bool, station: Option<(&str, &Station)>) -> Result<Commis> {
         let project = project
             .canonicalize()
             .with_context(|| format!("{} does not exist", project.display()))?;
@@ -73,7 +79,8 @@ impl Commis {
         } else {
             Some(Endpoint::open(&paths::socket(&format!("commis-{id}")), grant)?)
         };
-        let (services, bridges) = bridge(&id, ports)?;
+        let at = station.map(|(name, station)| AtStation::new(name, station, &project, &id)).transpose()?;
+        let (services, bridges) = if at.is_some() { (Vec::new(), Vec::new()) } else { bridge(&id, ports)? };
         let registries = if registries {
             let allowed = [&[proxy::CLAUDE_API], proxy::REGISTRIES.as_slice()].concat();
             Some(Proxy::start(&paths::socket(&format!("proxy-{id}")), &allowed)?)
@@ -81,7 +88,8 @@ impl Commis {
             None
         };
 
-        logs::event("commis.started", json!({ "commis": id, "project": project, "grant": granted_names, "services": ports, "registries": registries.is_some() }));
+        let station = at.as_ref().map(|it| it.name.clone());
+        logs::event("commis.started", json!({ "commis": id, "project": project, "grant": granted_names, "services": ports, "registries": registries.is_some(), "station": station }));
         Ok(Commis {
             id,
             project,
@@ -90,7 +98,9 @@ impl Commis {
             session: claude::random_session_id()?,
             begun: false,
             granted,
+            ports: ports.to_vec(),
             services,
+            at,
             _bridges: bridges,
             registries,
             asked: Vec::new(),
@@ -100,6 +110,14 @@ impl Commis {
 
     pub fn services(&self) -> &[Service] {
         &self.services
+    }
+
+    pub fn ports(&self) -> &[u16] {
+        &self.ports
+    }
+
+    pub fn at(&self) -> Option<&AtStation> {
+        self.at.as_ref()
     }
 
     pub fn build_dir(&self) -> &Path {
@@ -171,13 +189,33 @@ impl Commis {
             logs::event("commis.login_refreshed", json!({ "commis": id, "spent": spent }));
             claude::refresh_commis_login(&profile)
         };
-        claude::again_on_her_current_login(refresh, |again| match again {
-            Some(told_again) => {
+        claude::again_on_her_current_login(refresh, |again| {
+            if again.is_some() {
                 self.begun = true;
-                claude::reply_of(&mut self.command(model, outside)?, told_again, outside.time_limit, Some(started))
             }
-            None => claude::reply_of(&mut self.command(model, outside)?, told, outside.time_limit, Some(started)),
+            self.round(model, again.unwrap_or(told), outside, started)
         })
+    }
+
+    fn round(&self, model: &str, told: &str, outside: &Outside, started: &Started) -> Result<Reply> {
+        match &self.at {
+            None => claude::reply_of(&mut self.command(model, outside)?, told, outside.time_limit, Some(started)),
+            Some(at) => {
+                at.send_work(&self.project)?;
+                at.send_session(&self.directory, &self.id)?;
+                let forwarded = Forwarded {
+                    proxy: outside.proxy_socket.clone(),
+                    broker: self.granted.as_ref().map(|it| it.socket().to_path_buf()),
+                    registries: self.registries.as_ref().map(|it| it.socket().to_path_buf()),
+                };
+                let order = at.order(&self.id, true, &self.ports, &forwarded, outside, self.claude_args(model))?;
+                let reply = claude::reply_of(&mut at.command(&order, &forwarded)?, told, outside.time_limit, Some(started));
+                // Whatever the round came to, what it did there comes home
+                at.bring_back_session(&self.directory, &self.id)?;
+                at.bring_back_work(&self.project)?;
+                reply
+            }
+        }
     }
 
     fn command(&self, model: &str, outside: &Outside) -> Result<Command> {
@@ -195,22 +233,32 @@ impl Commis {
 
         let mut command = sandbox.claude(&claude::binary()?);
         command.args(["--dangerously-skip-permissions", "--strict-mcp-config", "--tools", sandbox.tools()]);
-        command.args(["--model", model]);
-        command.args(["--append-system-prompt", &what_it_can_reach(&self.services, self.registries.is_some())]);
+        command.args(self.claude_args(model));
+        Ok(command)
+    }
+
+    /// For claude, after what the sandbox it runs in gives it: the same at
+    /// home and at a station.
+    fn claude_args(&self, model: &str) -> Vec<String> {
+        let mut arguments = vec!["--model".to_string(), model.to_string()];
+        arguments.extend(["--append-system-prompt".to_string(), what_it_can_reach(&self.ports, self.registries.is_some())]);
         if self.granted.is_some() {
-            command.args(["--mcp-config", &broker::mcp_config(Path::new(sandbox::BROKER_INSIDE))]);
+            arguments.extend(["--mcp-config".to_string(), broker::mcp_config(Path::new(sandbox::BROKER_INSIDE))]);
         }
         if self.begun {
-            command.args(["--resume", &self.session]);
+            arguments.extend(["--resume".to_string(), self.session.clone()]);
         } else {
-            command.args(["--session-id", &self.session]);
+            arguments.extend(["--session-id".to_string(), self.session.clone()]);
         }
-        Ok(command)
+        arguments
     }
 
     pub fn discard(self) {
         transcripts::keep(&self.directory.join("profile"), &self.id, false);
         let _ = fs::remove_dir_all(&self.directory);
+        if let Some(at) = &self.at {
+            at.forget_session(&self.id);
+        }
         logs::event("commis.discarded", json!({ "commis": self.id }));
     }
 }
@@ -231,17 +279,17 @@ fn bridge(commis: &str, ports: &[u16]) -> Result<(Vec<Service>, Vec<Bridge>)> {
 /// What a commis can reach, said before it starts. Without this, a database
 /// its chef de partie didn't bridge in looks to it like a database that is down, and
 /// it reports the machine as broken instead of saying what it wasn't given.
-pub fn what_it_can_reach(services: &[Service], registries: bool) -> String {
+pub fn what_it_can_reach(ports: &[u16], registries: bool) -> String {
     let network = if registries {
         "no network beyond the package registries — rubygems, npm, crates.io, PyPI, mise's version list and nodejs.org — so fetching the project's dependencies works and nothing else out there does."
     } else {
         "no network at all."
     };
-    let reachable = match services {
+    let reachable = match ports {
         [] => "Nothing of this machine's own is reachable from in here.".to_string(),
-        services => format!(
+        ports => format!(
             "On your own loopback you can reach {}, bridged in from this machine.",
-            services.iter().map(|it| format!("port {}", it.port)).collect::<Vec<_>>().join(" and ")
+            ports.iter().map(|it| format!("port {it}")).collect::<Vec<_>>().join(" and ")
         ),
     };
 
@@ -282,12 +330,7 @@ mod tests {
 
     #[test]
     fn a_commis_is_told_what_it_can_reach_so_it_doesnt_call_it_broken() {
-        let granted = [
-            Service { port: 33380, socket: PathBuf::from("/run/sous-chef/service-h1-0.sock") },
-            Service { port: 6379, socket: PathBuf::from("/run/sous-chef/service-h1-1.sock") },
-        ];
-
-        let told = what_it_can_reach(&granted, false);
+        let told = what_it_can_reach(&[33380, 6379], false);
         assert!(told.contains("you can reach port 33380 and port 6379"), "{told}");
         assert!(told.contains("no network at all") && told.contains("was never given to you rather than being broken"));
         let alone = what_it_can_reach(&[], true);

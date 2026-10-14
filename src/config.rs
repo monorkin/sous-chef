@@ -60,6 +60,9 @@ pub struct Config {
     pub commis_per_chef_de_partie: usize,
     #[serde(default)]
     pub models: Models,
+    /// The machines besides this one a commis can work on, by name.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub stations: BTreeMap<String, crate::station::Station>,
 }
 
 /// Which Claude model does what, by any name `claude --model` takes: an
@@ -180,6 +183,7 @@ impl Default for Config {
             minutes_per_chef_de_partie_turn: six_hours(),
             commis_per_chef_de_partie: one(),
             models: Models::default(),
+            stations: BTreeMap::new(),
         }
     }
 }
