@@ -22,22 +22,36 @@ pub fn installed() -> bool {
 }
 
 pub fn install(agent: &str, start_at_boot: bool) -> Result<()> {
-    let executable = std::env::current_exe().context("could not determine sous-chef's own path")?;
-    point_at(agent, &executable)?;
-    systemctl(&["enable", NAME])?;
+    install_with_path(agent, &std::env::var("PATH").unwrap_or_default())?;
     if start_at_boot {
         linger()?;
     }
     Ok(())
 }
 
+/// Installed to run with the PATH given rather than the one this process
+/// has: a moved install's, which whoever moved it — over ssh, say — may not
+/// have.
+pub fn install_with_path(agent: &str, search_path: &str) -> Result<()> {
+    let executable = std::env::current_exe().context("could not determine sous-chef's own path")?;
+    write_unit(agent, &executable, search_path)?;
+    systemctl(&["enable", NAME])
+}
+
 /// The unit names the binary it runs by its path, and a mise install's path
 /// carries its version: after an upgrade the unit would start the old one
-/// until it is pointed at the new.
+/// until it is pointed at the new. The PATH stays the one setup was run with:
+/// an upgrade run from a shell with less on it would leave the service
+/// without claude.
 pub fn point_at(agent: &str, executable: &Path) -> Result<()> {
+    let kept = unit_path().and_then(|it| std::fs::read_to_string(it).ok()).and_then(|it| search_path_of(&it));
+    let search_path = kept.unwrap_or_else(|| std::env::var("PATH").unwrap_or_default());
+    write_unit(agent, executable, &search_path)
+}
+
+fn write_unit(agent: &str, executable: &Path, search_path: &str) -> Result<()> {
     let path = unit_path().context("could not determine the home directory")?;
-    let search_path = std::env::var("PATH").unwrap_or_default();
-    fsutil::write_private(&path, &unit(agent, executable, &search_path))?;
+    fsutil::write_private(&path, &unit(agent, executable, search_path))?;
     systemctl(&["daemon-reload"])
 }
 
@@ -79,9 +93,10 @@ fn unit(agent: &str, executable: &Path, search_path: &str) -> String {
 }
 
 /// Takes away the unit of an install made under another name, so the old
-/// binary isn't started next to this one after a reboot. Whether it was
-/// enabled is the answer: the new unit should be too.
-pub fn remove_named(name: &str) -> Result<bool> {
+/// binary isn't started next to this one after a reboot. When it was
+/// enabled, the PATH it ran with is the answer: the new unit should be
+/// enabled too, and needs that PATH.
+pub fn remove_named(name: &str) -> Result<Option<String>> {
     let unit = format!("{name}.service");
     match unit_path_named(&unit) {
         Some(path) if path.exists() => {
@@ -90,13 +105,18 @@ pub fn remove_named(name: &str) -> Result<bool> {
                 .stderr(std::process::Stdio::null())
                 .status()
                 .is_ok_and(|it| it.success());
+            let search_path = search_path_of(&std::fs::read_to_string(&path)?).unwrap_or_default();
             let _ = systemctl(&["disable", &unit]);
             std::fs::remove_file(&path)?;
             systemctl(&["daemon-reload"])?;
-            Ok(enabled)
+            Ok(enabled.then_some(search_path))
         }
-        _ => Ok(false),
+        _ => Ok(None),
     }
+}
+
+fn search_path_of(unit: &str) -> Option<String> {
+    unit.lines().find_map(|it| it.strip_prefix("Environment=PATH=")).map(str::to_string)
 }
 
 fn unit_path() -> Option<PathBuf> {
@@ -149,5 +169,6 @@ mod tests {
         assert!(unit.contains("KillMode=control-group\n"));
         assert!(unit.contains("TimeoutStopSec=5min\n"), "stopping waits for the threads it stopped to be compacted");
         assert!(unit.contains("WantedBy=default.target\n"));
+        assert_eq!(search_path_of(&unit).as_deref(), Some("/opt/tools/bin:/usr/bin"), "a unit rewritten later keeps the PATH it was set up with");
     }
 }

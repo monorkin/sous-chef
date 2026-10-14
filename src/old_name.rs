@@ -38,7 +38,7 @@ fn move_over(old: &str) -> Result<()> {
         bail!("{old} is still running; stop it first with `{old} stop`");
     }
 
-    let was_a_service = service::remove_named(old)?;
+    let service_with_path = service::remove_named(old)?;
     move_folder(&old_config, &config)?;
     move_folder(&old_data, &data)?;
     for suffix in ["", "-wal", "-shm"] {
@@ -48,8 +48,8 @@ fn move_over(old: &str) -> Result<()> {
     file_claude_sessions_anew(&paths::claude_config_home().join("projects"), &[(&old_config, &config), (&old_data, &data)])?;
     std::os::unix::fs::symlink(&data, &old_data).with_context(|| format!("could not link {} to {}", old_data.display(), data.display()))?;
     secrets::move_from(old, &old_config, config::JEV_API_KEY)?;
-    if was_a_service {
-        service::install(&Config::load()?.name, false)?;
+    if let Some(search_path) = service_with_path {
+        service::install_with_path(&Config::load()?.name, &search_path)?;
     }
 
     println!("Moved the install made as {old} to sous-chef.");
