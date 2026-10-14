@@ -99,7 +99,6 @@ pub trait Doing {
     /// Hands the terminal to the tool's own command line until the agent is
     /// connected under `profile`.
     fn connect_agent(&mut self, tool: &str, profile: &str, agent: &str) -> Result<()>;
-    fn can_watch(&mut self, tool: &str) -> bool;
     fn add_server(&mut self, name: &str, command: &[String], env: BTreeMap<String, String>, acts_as: ActsAs) -> Result<()>;
     fn add_printer(&mut self, name: &str, printer: Printer) -> Result<()>;
     fn trust(&mut self, address: &str, name: &str) -> Result<()>;
@@ -446,7 +445,6 @@ mod tests {
         acts_as: Vec<ActsAs>,
         trusted: Vec<(String, String)>,
         printers: Vec<(String, Printer)>,
-        watches: bool,
         profiles: Vec<&'static str>,
         github_login: Option<String>,
         git_identity: Option<(String, String)>,
@@ -550,10 +548,6 @@ mod tests {
             Ok(())
         }
 
-        fn can_watch(&mut self, _tool: &str) -> bool {
-            self.watches
-        }
-
         fn add_server(&mut self, name: &str, command: &[String], env: BTreeMap<String, String>, acts_as: ActsAs) -> Result<()> {
             self.servers.push((name.to_string(), command.to_vec()));
             self.server_env.push(env);
@@ -593,7 +587,7 @@ mod tests {
             "n",                                       // nobody else may assign work
             "y", "y",                                  // HEY, confirm as me
         ]);
-        let mut doing = Pretend { installed: vec!["basecamp", "hey"], watches: true, ..Pretend::default() };
+        let mut doing = Pretend { installed: vec!["basecamp", "hey"], ..Pretend::default() };
         let config_dir = walk(&mut asking, &mut doing, "agent");
 
         assert_eq!(doing.config.as_ref().unwrap().name, "Botten");
@@ -608,7 +602,6 @@ mod tests {
         assert_eq!(doing.servers[0], ("basecamp".to_string(), words(&["basecamp", "--profile", "botten", "mcp"])));
         assert_eq!(doing.acts_as, [ActsAs::Agent, ActsAs::Chef], "the agent acts as itself; HEY used as you acts as you");
         assert_eq!(doing.server_env[0]["XDG_CONFIG_HOME"], "{tools}", "her Basecamp profile lives in her own folder, wherever that is");
-        assert_eq!(printer_env(&doing), "{tools}");
         assert!(config::environment(&doing.server_env[0])["XDG_CONFIG_HOME"].ends_with("/sous-chef/tools"));
         assert!(doing.server_env[1].is_empty(), "a tool used as you runs with your own config");
         let (name, printer) = &doing.printers[0];
@@ -625,7 +618,9 @@ mod tests {
         assert!(!printer.anyone, "nobody but the trusted people is heard");
         assert!(asking.said.iter().any(|it| it.contains("acts only on the people you named")));
         assert_eq!(printer.reply, None);
-        assert_eq!(printer.trigger.as_ref().unwrap().args, words(&["--profile", "botten", "watch", "--json"]));
+        assert_eq!((printer.trigger.as_ref(), printer.every_seconds), (None, 15), "Basecamp pushes nothing to listen to, so its inbox is asked often");
+        let note = printer.note.as_ref().unwrap();
+        assert!(note.contains("answer where you were addressed") && !note.contains("message board"), "an agent comments and chats like anyone: {note}");
 
         assert_eq!(doing.servers[1], ("hey".to_string(), words(&["hey", "mcp"])));
         assert_eq!(doing.printers.len(), 1, "a tool used as you gets no printer");
@@ -692,7 +687,7 @@ mod tests {
     fn a_profile_logged_in_as_her_own_user_is_hers_to_listen_with() {
         // Basecamp, not as an agent, the second profile, confirm, the first account, listen: yes, trust me, my name, nobody else, anyone may assign: no
         let mut asking = Scripted::answering(&["", "", "", "", "", "y", "n", "2", "y", "1", "y", "y", "", "", "n"]);
-        let mut doing = Pretend { installed: vec!["basecamp"], profiles: vec!["personal", "bot"], watches: true, ..Pretend::default() };
+        let mut doing = Pretend { installed: vec!["basecamp"], profiles: vec!["personal", "bot"], ..Pretend::default() };
         let config_dir = walk(&mut asking, &mut doing, "own-user");
 
         assert!(asking.asked.iter().any(|it| it == "Confirm: Do you want to allow Anna to use Basecamp as bot@basecamp.example.com?"));
@@ -702,7 +697,7 @@ mod tests {
         let (_, printer) = &doing.printers[0];
         assert_eq!(printer.watch.tool, "basecamp_account", "a user hears through notifications, the way a person does");
         assert_eq!(printer.sender, "/creator/id", "a user that isn't an admin sees addresses redacted");
-        assert_eq!(printer.trigger.as_ref().unwrap().args, words(&["--profile", "bot", "watch", "--json", "--account", "111"]));
+        assert_eq!((printer.trigger.as_ref(), printer.every_seconds), (None, 15), "notifications are asked as often as an agent's inbox");
         assert!(!printer.anyone);
         assert_eq!(doing.trusted, [("1001".to_string(), "Me".to_string())], "so the trusted person is known by id");
         let _ = std::fs::remove_dir_all(config_dir);
@@ -792,10 +787,6 @@ mod tests {
         assert!(doing.servers.is_empty());
         assert!(asking.said.iter().any(|it| it.contains("stays out of Basecamp for now")));
         let _ = std::fs::remove_dir_all(config_dir);
-    }
-
-    fn printer_env(doing: &Pretend) -> String {
-        doing.printers[0].1.trigger.as_ref().unwrap().env["XDG_CONFIG_HOME"].clone()
     }
 
     #[test]

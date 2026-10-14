@@ -78,8 +78,7 @@ impl Wizard<'_> {
         let trusted = self.trusted_people(tool, agent, recognized_by)?;
         if its_own {
             let anyone = self.anyone_may_assign_work(tool, agent)?;
-            let watches = self.doing.can_watch(tool.name);
-            self.doing.add_printer(tool.name, setup_basecamp::notifications_printer(profile.as_deref(), &account.id, watches, anyone))?;
+            self.doing.add_printer(tool.name, setup_basecamp::notifications_printer(anyone))?;
             self.asking.done(&format!("{agent} listens in {} as {who}.", tool.title))?;
             self.say_who_is_heard(tool, agent, trusted, anyone)
         } else {
@@ -135,7 +134,6 @@ impl Wizard<'_> {
             return self.asking.trouble(&format!("Couldn't connect {agent}: {error:#}. Nothing was changed; run setup again to retry."));
         }
 
-        let watches = self.doing.can_watch(tool.name);
         let command = words(&[tool.program, "--profile", &profile, "mcp"]);
         if let Err(error) = self.doing.add_server(tool.name, &command, own_tool_config(), ActsAs::Agent) {
             return self.asking.trouble(&format!("Couldn't add the {} server: {error:#}", tool.title));
@@ -143,7 +141,7 @@ impl Wizard<'_> {
 
         let trusted = self.trusted_people(tool, agent, RecognizedBy::PersonId)?;
         let anyone = self.anyone_may_assign_work(tool, agent)?;
-        self.doing.add_printer(tool.name, setup_basecamp::agent_printer(&profile, watches, anyone))?;
+        self.doing.add_printer(tool.name, setup_basecamp::agent_printer(anyone))?;
 
         self.asking.done(&format!("{agent} is in {} under its own profile.", tool.title))?;
         self.say_who_is_heard(tool, agent, trusted, anyone)
@@ -155,11 +153,7 @@ impl Wizard<'_> {
             (_, false) => self.asking.done(&format!("{agent} acts only on the people you named, and ignores everyone else."))?,
             (_, true) => self.asking.done(&format!("Anyone who can reach {agent} there can hand it work; only the people you named can direct it."))?,
         }
-        if self.doing.can_watch(tool.name) {
-            self.asking.done(&format!("{agent} hears about mentions and assignments the moment they happen."))
-        } else {
-            self.asking.note(&format!("  This basecamp has no `watch` command yet, so {agent} checks for mentions once a minute."))
-        }
+        self.asking.done(&format!("{agent} checks for mentions and assignments every {} seconds.", setup_basecamp::EVERY_SECONDS))
     }
 
     fn as_you(&mut self, tool: &Tool, agent: &str) -> Result<()> {

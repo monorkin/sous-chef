@@ -5,6 +5,9 @@
 //! threads, hands and sources become those of chefs de partie, commis and
 //! ticket printers.
 //!
+//! And the Basecamp printers an older setup wrote are brought up to what this
+//! one would write.
+//!
 //! Each move happens only when the old folder is there and the new one
 //! isn't, so it happens once and never over what is already there. The old
 //! data folder is left as a link to the new one: worktrees link their build
@@ -30,6 +33,23 @@ pub fn move_over_if_left_behind() {
         eprintln!("The install made under older names couldn't be moved over: {error:#}");
         std::process::exit(1);
     }
+    if let Err(error) = printers_up_to_date() {
+        eprintln!("The Basecamp printers couldn't be brought up to date: {error:#}");
+    }
+}
+
+/// What setup wrote into the config for Basecamp, as this release would
+/// write it, so an install needn't run setup again to hear sooner.
+fn printers_up_to_date() -> Result<()> {
+    if !paths::config_dir().join("config.json").exists() {
+        return Ok(());
+    }
+    let mut config = Config::load()?;
+    let changed = config.printers.values_mut().map(crate::setup_basecamp::up_to_date).filter(|it| *it).count();
+    if changed > 0 {
+        config.save()?;
+    }
+    Ok(())
 }
 
 fn move_from_the_old_name(old: &str) -> Result<()> {

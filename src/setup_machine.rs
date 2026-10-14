@@ -182,14 +182,6 @@ impl Doing for Machine {
         }
     }
 
-    fn can_watch(&mut self, tool: &str) -> bool {
-        Command::new(tool)
-            .args(["watch", "--help"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|it| it.success())
-    }
 
     fn add_server(&mut self, name: &str, command: &[String], env: BTreeMap<String, String>, acts_as: ActsAs) -> Result<()> {
         let mut settings = mcp_cli::settings_for(command)?;
