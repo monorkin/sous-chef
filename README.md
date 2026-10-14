@@ -22,20 +22,20 @@ and learns and improves over time while also being token efficient.
 sous-chef is a kitchen, and the words below are used everywhere: in the
 code, the config, the logs and the commands.
 
-| Word | What it is in sous-chef |
-|---|---|
-| chef | You. The person the agent works for. |
-| sous-chef | The harness itself: the program that runs the kitchen. |
-| ticket printers | Where messages come from: Basecamp, HEY, Fizzy, GitHub, Sentry. One message is a ticket. |
-| expediter | Takes each ticket and sends it to the right chef de partie, or starts a new one. |
-| chefs de partie | One per conversation. Each plans the work, writes the brief and delegates it to commis. |
-| commis | A sandboxed Claude Code session that does the actual work in a project folder. |
-| stations | The machines commis run on. Today that is always this one. |
-| the pass | Checks a commis's work before the chef de partie hears about it, and sends back only a verdict. |
-| taster | Screens what comes in and scores the style of what goes out (Jev with a key, haiku without). |
-| plating | Restyles outgoing prose to your style before it is posted. |
-| recipe book | What she has learned, kept by katami. One thing learned is a recipe. |
-| suppliers | The Claude subscriptions she rotates between. |
+| Name | What it is in sous-chef | Why |
+|---|---|---|
+| **Chef** | You, the person the agent works for. | Sets the menu and gives the orders. |
+| **Sous-chef** | The harness itself: the program that runs everything below. | Runs the kitchen on the chef's behalf. |
+| **Ticket printers** | Where messages come from: Basecamp, HEY, Fizzy, GitHub, Sentry. One message is a ticket. | Orders come in from the dining room as tickets. |
+| **Expediter** | Takes each ticket and calls it to the chef de partie that owns its conversation, or starts a new one. | Reads every ticket and calls it to the right station. |
+| **Chef de partie** | One per conversation. Plans the work, writes the briefs and sends commis to do it. | Owns one order from start to finish. |
+| **Commis** | A sandboxed Claude Code session that does the actual work in one project folder, and reports back. | The junior cook who does the prep, under a chef de partie. |
+| **Station** | A machine a commis works on: this one, or another set up with `sous-chef station add`. | Where a commis works. |
+| **The pass** | Checks a commis's work against the brief before the chef de partie hears about it, and sends back only a verdict. | Every plate is checked there before it goes out. |
+| **Taster** | Screens what comes in for manipulation, and scores the style of what goes out (Jev with a key, haiku without). | Tastes everything before it's served or used. |
+| **Plating** | Restyles outgoing prose to your style before it is posted, without changing what it says. | Makes a dish presentable without changing the dish. |
+| **Recipe book** | What the agent has learned, kept by katami. One thing learned is a recipe. | What the kitchen has learned. |
+| **Suppliers** | The Claude subscriptions the agent rotates between. | Switched when one runs out. |
 
 ## Setting her up
 
