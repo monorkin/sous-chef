@@ -1,7 +1,7 @@
-//! The one record of what she did: every thread woken, hand started, grant
-//! written, and request refused is a line of JSON in a single append-only
-//! file. `sous-chef log` reads it back. Logging never fails loudly — a full disk
-//! shouldn't take a thread down with it.
+//! The one record of what she did: every chef de partie woken, commis started,
+//! grant written, and request refused is a line of JSON in a single
+//! append-only file. `sous-chef log` reads it back. Logging never fails loudly
+//! — a full disk shouldn't take a thread down with it.
 
 use serde_json::{Value, json};
 use std::fs::{File, OpenOptions};
@@ -64,7 +64,7 @@ pub fn end_of(file: &Path, bytes: u64) -> String {
     }
 }
 
-/// `only` keeps the lines of one thread, hand or conversation, by any part
+/// `only` keeps the lines of one chef de partie, commis or conversation, by any part
 /// of its id.
 pub fn print(follow: bool, only: Option<&str>) -> anyhow::Result<()> {
     let mut reader = BufReader::new(File::open(paths::log_file())?);
@@ -114,7 +114,7 @@ const MAGENTA: &str = "\x1b[35m";
 const PLAIN: &str = "\x1b[0m";
 
 impl Look {
-    /// `time  who  event  the rest`. Who is the thread, hand or conversation
+    /// `time  who  event  the rest`. Who is the chef de partie, commis or conversation
     /// the line is about, so a log with several going at once can be read
     /// by column; the rest is the details with those keys taken out.
     fn render(&self, line: &str) -> Option<String> {
@@ -151,7 +151,7 @@ impl Look {
     }
 }
 
-const WHO_KEYS: [&str; 4] = ["hand", "by", "thread", "conversation"];
+const WHO_KEYS: [&str; 4] = ["commis", "by", "chef_de_partie", "conversation"];
 
 /// An id short enough for a column: the first part and the last few
 /// characters of a long one.
@@ -166,11 +166,11 @@ pub fn short_id(id: &str) -> String {
 }
 
 /// Red for what went wrong, yellow for what fell short or was let go, green
-/// for what began or came back good, dim for the routine. A review is
+/// for what began or came back good, dim for the routine. A pass is
 /// coloured by its verdict.
 fn colour_of(event: &str, details: &Value) -> &'static str {
-    let rejected = event == "review.finished" && details["accepted"] == false;
-    let accepted = event == "review.finished" && details["accepted"] == true;
+    let rejected = event == "pass.finished" && details["accepted"] == false;
+    let accepted = event == "pass.finished" && details["accepted"] == true;
     if rejected || [".failed", ".refused", ".rejected", ".withheld", ".dropped"].iter().any(|it| event.ends_with(it)) {
         RED
     } else if ["waiting", "out_of_time", "without", "unchecked", "ignored", "left_out", "discarded", "fell_back"].iter().any(|it| event.contains(it)) {
@@ -191,19 +191,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn entries_render_by_column_and_can_be_kept_to_one_hand() {
+    fn entries_render_by_column_and_can_be_kept_to_one_commis() {
         let plain = Look { styled: false, only: None };
-        let line = r#"{"at":"2026-09-20T10:00:00Z","event":"hand.started","details":{"hand":"h18d78bc145875c5d","project":"/srv/p"}}"#;
-        assert_eq!(plain.render(line).unwrap(), "10:00:00  h18d78bc145875c5d   hand.started              project=/srv/p");
+        let line = r#"{"at":"2026-09-20T10:00:00Z","event":"commis.started","details":{"commis":"h18d78bc145875c5d","project":"/srv/p"}}"#;
+        assert_eq!(plain.render(line).unwrap(), "10:00:00  h18d78bc145875c5d   commis.started            project=/srv/p");
         assert_eq!(plain.render("not json\n").unwrap(), "not json");
 
-        let by_hand = r#"{"at":"2026-09-20T10:00:01Z","event":"broker.called","details":{"by":"hand-h18d78bc145875c5d","tool":"Read","ms":3}}"#;
-        assert_eq!(plain.render(by_hand).unwrap(), "10:00:01  hand-h18d78…875c5d  broker.called             ms=3  tool=Read");
+        let by_commis = r#"{"at":"2026-09-20T10:00:01Z","event":"broker.called","details":{"by":"commis-h18d78bc145875c5d","tool":"Read","ms":3}}"#;
+        assert_eq!(plain.render(by_commis).unwrap(), "10:00:01  commis-h18d…875c5d  broker.called             ms=3  tool=Read");
 
         let one = Look { styled: false, only: Some("h18d78".to_string()) };
         assert!(one.render(line).is_some());
-        assert!(one.render(by_hand).is_some());
-        assert!(one.render(r#"{"at":"2026-09-20T10:00:02Z","event":"thread.woken","details":{"conversation":"basecamp-1"}}"#).is_none());
+        assert!(one.render(by_commis).is_some());
+        assert!(one.render(r#"{"at":"2026-09-20T10:00:02Z","event":"chef_de_partie.woken","details":{"conversation":"basecamp-1"}}"#).is_none());
 
         let styled = Look { styled: true, only: None };
         assert!(styled.render(line).unwrap().contains(GREEN));
@@ -213,15 +213,15 @@ mod tests {
     fn events_are_coloured_by_how_they_went() {
         let none = Value::Null;
         assert_eq!(colour_of("broker.refused", &none), RED);
-        assert_eq!(colour_of("editor.rejected", &none), RED);
-        assert_eq!(colour_of("review.finished", &json!({ "accepted": false })), RED);
-        assert_eq!(colour_of("hand.discarded", &none), YELLOW);
-        assert_eq!(colour_of("judge.fell_back", &none), YELLOW);
+        assert_eq!(colour_of("plating.rejected", &none), RED);
+        assert_eq!(colour_of("pass.finished", &json!({ "accepted": false })), RED);
+        assert_eq!(colour_of("commis.discarded", &none), YELLOW);
+        assert_eq!(colour_of("taster.fell_back", &none), YELLOW);
         assert_eq!(colour_of("turn.out_of_time", &none), YELLOW);
-        assert_eq!(colour_of("review.finished", &json!({ "accepted": true })), GREEN);
-        assert_eq!(colour_of("hand.reported", &none), GREEN);
-        assert_eq!(colour_of("thread.woken", &none), GREEN);
-        assert_eq!(colour_of("thread.slept", &none), DIM);
+        assert_eq!(colour_of("pass.finished", &json!({ "accepted": true })), GREEN);
+        assert_eq!(colour_of("commis.reported", &none), GREEN);
+        assert_eq!(colour_of("chef_de_partie.woken", &none), GREEN);
+        assert_eq!(colour_of("chef_de_partie.slept", &none), DIM);
         assert_eq!(colour_of("work.claimed", &none), MAGENTA);
         assert_eq!(colour_of("schedule.added", &none), BOLD);
     }

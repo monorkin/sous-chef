@@ -9,8 +9,8 @@
 //!
 //! The service starts the binary by its path, which carries the version, so
 //! the unit is pointed at the new one. The old one keeps running until it is
-//! restarted: a restart stops whatever the hands are doing, and that is for
-//! the person to time.
+//! restarted: a restart stops whatever the commis are doing, and that is for
+//! the chef to time.
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
@@ -200,7 +200,7 @@ fn point_the_service_at(binary: &Path) -> Result<()> {
         println!("The service now starts {}.", binary.display());
     }
     if control::is_running() {
-        println!("sous-chef {CURRENT} is still running. `sous-chef restart` puts it on the new one; it stops whatever the hands are doing.");
+        println!("sous-chef {CURRENT} is still running. `sous-chef restart` puts it on the new one; it stops whatever the commis are doing.");
     }
     Ok(())
 }

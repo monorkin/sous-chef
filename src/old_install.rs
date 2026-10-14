@@ -1,9 +1,12 @@
-//! An install made when sous-chef was still called anna, moved over to the
-//! new name the first time sous-chef starts: its folders, the Claude sessions
-//! filed under them, the token in the keyring and the service.
+//! An install made under older names, moved over to the current ones the
+//! first time sous-chef starts. First from when sous-chef was still called
+//! anna: its folders, the Claude sessions filed under them, the token in the
+//! keyring and the service. Then from before the kitchen: the folders of
+//! threads, hands and sources become those of chefs de partie, commis and
+//! ticket printers.
 //!
-//! Only when the old folders are there and the new ones aren't, so it happens
-//! once and never over an install already made under the new name. The old
+//! Each move happens only when the old folder is there and the new one
+//! isn't, so it happens once and never over what is already there. The old
 //! data folder is left as a link to the new one: worktrees link their build
 //! folders into it, and those links keep working.
 
@@ -17,26 +20,25 @@ use crate::paths;
 use crate::secrets;
 use crate::service;
 
-const OLD: &str = "anna";
+const OLD_NAME: &str = "anna";
+const OLD_FOLDERS: [(&str, &str); 3] = [("threads", paths::CHEFS_DE_PARTIE), ("hands", paths::COMMIS), ("sources", paths::PRINTERS)];
 
 /// Stops here rather than going on without the old install: what would
 /// start then is an empty one, set up from nothing.
 pub fn move_over_if_left_behind() {
-    if let Err(error) = move_over(OLD) {
-        eprintln!("The install made as {OLD} couldn't be moved to sous-chef: {error:#}");
+    if let Err(error) = move_from_the_old_name(OLD_NAME).and_then(|_| move_into_the_kitchen()) {
+        eprintln!("The install made under older names couldn't be moved over: {error:#}");
         std::process::exit(1);
     }
 }
 
-fn move_over(old: &str) -> Result<()> {
+fn move_from_the_old_name(old: &str) -> Result<()> {
     let (old_config, old_data) = (paths::config_dir_named(old), paths::data_dir_named(old));
     let (config, data) = (paths::config_dir(), paths::data_dir());
     if !(left_behind(&old_config, &config) || left_behind(&old_data, &data)) {
         return Ok(());
     }
-    if UnixStream::connect(paths::runtime_dir_named(old).join("control.sock")).is_ok() {
-        bail!("{old} is still running; stop it first with `{old} stop`");
-    }
+    refuse_while_running(&paths::runtime_dir_named(old), old)?;
 
     let service_with_path = service::remove_named(old)?;
     move_folder(&old_config, &config)?;
@@ -45,7 +47,7 @@ fn move_over(old: &str) -> Result<()> {
         move_file(&data.join(format!("{old}.db{suffix}")), &paths::database().with_extension(format!("db{suffix}")))?;
     }
     move_file(&data.join(format!("{old}.out")), &paths::output_file())?;
-    file_claude_sessions_anew(&paths::claude_config_home().join("projects"), &[(&old_config, &config), (&old_data, &data)])?;
+    file_claude_sessions_anew(&[(&old_config, &config), (&old_data, &data)])?;
     std::os::unix::fs::symlink(&data, &old_data).with_context(|| format!("could not link {} to {}", old_data.display(), data.display()))?;
     secrets::move_from(old, &old_config, config::JEV_API_KEY)?;
     if let Some(search_path) = service_with_path {
@@ -53,6 +55,31 @@ fn move_over(old: &str) -> Result<()> {
     }
 
     println!("Moved the install made as {old} to sous-chef.");
+    Ok(())
+}
+
+fn move_into_the_kitchen() -> Result<()> {
+    let data = paths::data_dir();
+    let moves: Vec<_> = OLD_FOLDERS.iter().map(|(old, new)| (data.join(old), data.join(new))).filter(|(old, new)| left_behind(old, new)).collect();
+    if moves.is_empty() {
+        return Ok(());
+    }
+    refuse_while_running(&paths::runtime_dir(), "sous-chef")?;
+
+    for (old, new) in &moves {
+        move_folder(old, new)?;
+    }
+    let refiling: Vec<(&Path, &Path)> = moves.iter().map(|(old, new)| (old.as_path(), new.as_path())).collect();
+    file_claude_sessions_anew(&refiling)?;
+
+    println!("Moved the threads, hands and sources over to chefs de partie, commis and ticket printers.");
+    Ok(())
+}
+
+fn refuse_while_running(runtime: &Path, name: &str) -> Result<()> {
+    if UnixStream::connect(runtime.join("control.sock")).is_ok() {
+        bail!("{name} is still running; stop it first with `{name} stop`");
+    }
     Ok(())
 }
 
@@ -78,9 +105,10 @@ fn move_file(from: &Path, to: &Path) -> Result<()> {
 }
 
 /// Claude Code files a session under the folder it ran in, by name, so a
-/// thread whose folder moved would start over instead of resuming.
-fn file_claude_sessions_anew(projects: &Path, moves: &[(&Path, &Path)]) -> Result<()> {
-    let Ok(entries) = fs::read_dir(projects) else {
+/// chef de partie whose folder moved would start over instead of resuming.
+fn file_claude_sessions_anew(moves: &[(&Path, &Path)]) -> Result<()> {
+    let projects = paths::claude_config_home().join("projects");
+    let Ok(entries) = fs::read_dir(&projects) else {
         return Ok(());
     };
     for entry in entries.flatten() {
@@ -113,14 +141,21 @@ mod tests {
     fn sessions_filed_under_the_old_folders_are_filed_under_the_new_ones() {
         let (old_data, data) = (Path::new("/home/someone/.local/share/anna"), Path::new("/home/someone/.local/share/sous-chef"));
         let (old_config, config) = (Path::new("/home/someone/.config/anna"), Path::new("/home/someone/.config/sous-chef"));
-        let moves = [(old_config, config), (old_data, data)];
+        let renamed = [(old_config, config), (old_data, data)];
 
         assert_eq!(
-            refiled("-home-someone--local-share-anna-threads-basecamp-123", &moves).as_deref(),
+            refiled("-home-someone--local-share-anna-threads-basecamp-123", &renamed).as_deref(),
             Some("-home-someone--local-share-sous-chef-threads-basecamp-123")
         );
-        assert_eq!(refiled("-home-someone--config-anna-katami", &moves).as_deref(), Some("-home-someone--config-sous-chef-katami"));
-        assert_eq!(refiled("-home-someone--local-share-annabel-x", &moves), None, "only the folder itself, not one that starts the same");
-        assert_eq!(refiled("-home-someone-Work-shop", &moves), None);
+        assert_eq!(refiled("-home-someone--config-anna-katami", &renamed).as_deref(), Some("-home-someone--config-sous-chef-katami"));
+        assert_eq!(refiled("-home-someone--local-share-annabel-x", &renamed), None, "only the folder itself, not one that starts the same");
+        assert_eq!(refiled("-home-someone-Work-shop", &renamed), None);
+
+        let (threads, chefs_de_partie) = (Path::new("/home/someone/.local/share/sous-chef/threads"), Path::new("/home/someone/.local/share/sous-chef/chefs_de_partie"));
+        assert_eq!(
+            refiled("-home-someone--local-share-sous-chef-threads-basecamp-123", &[(threads, chefs_de_partie)]).as_deref(),
+            Some("-home-someone--local-share-sous-chef-chefs-de-partie-basecamp-123"),
+            "and then again into the kitchen"
+        );
     }
 }

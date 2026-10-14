@@ -1,7 +1,8 @@
-//! What one `sous-chef` process builds once and every thread shares: the judge,
-//! the editor, the MCP servers, and the proxy hands reach Claude through.
+//! What one `sous-chef` process builds once and every chef de partie shares: the
+//! taster, the plating, the MCP servers, and the proxy commis reach Claude
+//! through.
 //!
-//! Starting up also sweeps away what dead processes left behind. A hand's
+//! Starting up also sweeps away what dead processes left behind. A commis's
 //! profile holds a live access token, and a process that was killed never got
 //! to delete it.
 
@@ -16,31 +17,31 @@ use crate::at_work::AtWork;
 use crate::cooling::Cooling;
 use crate::claude;
 use crate::config::{self, Config};
-use crate::editor::Editor;
 use crate::github;
-use crate::judge::Judge;
+use crate::kitchen::Brigade;
 use crate::logs;
 use crate::mailbox::Mailbox;
 use crate::mcp::Catalog;
 use crate::paths;
+use crate::plating::Plating;
 use crate::proxy::{self, Proxy};
 use crate::sandbox::Outside;
 use crate::store::Store;
+use crate::taster::Taster;
 use crate::toolchains::Toolchains;
 use crate::turns::Turns;
 use crate::held::HeldBack;
-use crate::workshop::Hands;
 
 pub struct Runtime {
     pub config: Config,
     pub database: PathBuf,
     pub personality: Option<String>,
-    /// How she writes: the editor holds her to it after the fact, and every
-    /// thread is told it up front, so most of what she writes needs no
+    /// How she writes: the plating holds her to it after the fact, and every
+    /// chef de partie is told it up front, so most of what she writes needs no
     /// rewriting.
     pub style: Option<String>,
-    pub judge: Arc<Judge>,
-    pub editor: Arc<Editor>,
+    pub taster: Arc<Taster>,
+    pub plating: Arc<Plating>,
     pub catalog: Arc<Catalog>,
     /// What couldn't be checked yet, waiting to be read with read_held_back.
     pub held: Arc<HeldBack>,
@@ -50,12 +51,13 @@ pub struct Runtime {
     pub at_work: Arc<AtWork>,
     /// Every conversation's queue of turns.
     pub turns: Arc<Turns>,
-    /// What is said to each conversation while its thread is busy.
+    /// What is said to each conversation while its chef de partie is busy.
     pub mailbox: Arc<Mailbox>,
-    /// When each quiet thread is compacted, before its cache goes cold.
+    /// When each quiet chef de partie is compacted, before its cache goes cold.
     pub cooling: Arc<Cooling>,
-    /// Every thread's hands, which work on between their thread's turns.
-    pub hands: Arc<Hands>,
+    /// Every chef de partie's commis, who work on between their chef de
+    /// partie's turns.
+    pub brigade: Arc<Brigade>,
     /// One connection open for as long as she runs. Everything else opens
     /// the database and closes it again, and when the last connection
     /// closes, SQLite folds the write-ahead log back in under an exclusive
@@ -71,12 +73,12 @@ impl Runtime {
 
         let config = Config::load()?;
         claude::write_settings(&paths::claude_config_home())?;
-        let judge = Arc::new(Judge::with_whatever_is_set_up(&config)?);
+        let taster = Arc::new(Taster::with_whatever_is_set_up(&config)?);
         let style = config::style()?;
-        let editor = Arc::new(Editor::new(style.clone(), judge.clone(), config.models.editing.clone()));
+        let plating = Arc::new(Plating::new(style.clone(), taster.clone(), config.models.plating.clone()));
         let personality = config::personality()?;
         let held = Arc::new(HeldBack::default());
-        let catalog = Arc::new(Catalog::open(&config, editor.clone(), judge.clone(), held.clone()));
+        let catalog = Arc::new(Catalog::open(&config, plating.clone(), taster.clone(), held.clone()));
         let proxy = Proxy::start(&paths::socket("proxy"), &[proxy::CLAUDE_API])?;
         let outside = Arc::new(Outside {
             proxy_socket: proxy.socket().to_path_buf(),
@@ -92,15 +94,15 @@ impl Runtime {
 
         let database = paths::database();
         let held_open = Mutex::new(Store::open_at(&database)?);
-        let hands = Arc::new(Hands::new(config.hands_per_thread));
+        let brigade = Arc::new(Brigade::new(config.commis_per_chef_de_partie));
 
         Ok(Runtime {
             config,
             database,
             personality,
             style,
-            judge,
-            editor,
+            taster,
+            plating,
             catalog,
             held,
             outside,
@@ -108,16 +110,16 @@ impl Runtime {
             turns: Arc::new(Turns::default()),
             mailbox: Arc::new(Mailbox::default()),
             cooling: Arc::new(Cooling::default()),
-            hands,
+            brigade,
             _database_held_open: held_open,
             _proxy: proxy,
         })
     }
 
     /// For a process that runs one conversation and exits, like
-    /// `sous-chef chat`: its hands and the turns their verdicts wake would die with it.
+    /// `sous-chef chat`: its commis and the turns their verdicts wake would die with it.
     pub fn wait_until_settled(&self) {
-        while self.hands.are_working() || self.turns.busy_conversations() > 0 {
+        while self.brigade.are_working() || self.turns.busy_conversations() > 0 {
             std::thread::sleep(Duration::from_secs(1));
         }
     }

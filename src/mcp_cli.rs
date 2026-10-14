@@ -104,7 +104,7 @@ pub fn mark_prose(name: &str, tool: &str, argument: &str) -> Result<()> {
         arguments.push(argument.to_string());
     }
     config.save()?;
-    println!("{tool}'s {argument} now goes through the editor, and hands can't be granted {tool}.");
+    println!("{tool}'s {argument} now goes through the plating, and commis can't be granted {tool}.");
     say_if_she_has_to_restart();
     Ok(())
 }

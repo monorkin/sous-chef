@@ -1,12 +1,12 @@
-//! The editor: everything she writes to people passes through here on its
+//! The plating: everything she writes to people passes through here on its
 //! way out.
 //!
 //! Agents write dense, over-explained prose. With a style configured, the
-//! judge scores outgoing text against it; text that falls short is rewritten
-//! by the editing model under one rule — change no facts — and the judge then checks the
+//! taster scores outgoing text against it; text that falls short is rewritten
+//! by the plating model under one rule — change no facts — and the taster then checks the
 //! rewrite still says the same thing. Rewriting comes before rejecting because
-//! a rejection loop spends the thread's context on restyling. Only when a
-//! faithful rewrite can't be had does the text go back to the thread, with
+//! a rejection loop spends the chef de partie's context on restyling. Only when a
+//! faithful rewrite can't be had does the text go back to the chef de partie, with
 //! the style attached — three times in a turn at most. After that what she
 //! writes goes out as she wrote it.
 //!
@@ -20,27 +20,27 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::claude;
 use crate::config::Chain;
-use crate::judge::Judge;
 use crate::logs;
+use crate::taster::Taster;
 
 const FOLLOWS_STYLE: f64 = 0.5;
 const UNFAITHFUL: f64 = 0.75;
 const MOST_TIMES_SENT_BACK: u32 = 3;
 
-/// How often the editor has sent a turn's writing back to it. Each turn
+/// How often the plating has sent a turn's writing back to it. Each turn
 /// keeps its own count, whichever tool the writing goes out through.
 #[derive(Default)]
 pub struct SentBack(AtomicU32);
 
-pub struct Editor {
+pub struct Plating {
     style: Option<String>,
-    judge: Arc<Judge>,
+    taster: Arc<Taster>,
     models: Chain,
 }
 
-impl Editor {
-    pub fn new(style: Option<String>, judge: Arc<Judge>, models: Chain) -> Editor {
-        Editor { style, judge, models }
+impl Plating {
+    pub fn new(style: Option<String>, taster: Arc<Taster>, models: Chain) -> Plating {
+        Plating { style, taster, models }
     }
 
     pub fn polish(&self, text: &str, sent_back: &SentBack) -> Result<String> {
@@ -49,7 +49,7 @@ impl Editor {
 
     fn polish_with(&self, text: &str, sent_back: &SentBack, rewrite: impl Fn(&str, &str) -> Result<String>) -> Result<String> {
         match &self.style {
-            Some(style) if self.judge.probability(&follows_style_question(style), text)? < FOLLOWS_STYLE => {
+            Some(style) if self.taster.probability(&follows_style_question(style), text)? < FOLLOWS_STYLE => {
                 self.restyle(style, text, sent_back, rewrite)
             }
             _ => Ok(text.to_string()),
@@ -63,29 +63,29 @@ impl Editor {
         // Sizes, not the texts: the log is kept and backed up, and what she
         // writes to people doesn't belong in it
         if unfaithfulness < UNFAITHFUL {
-            logs::event("editor.rewrote", json!({ "from": text.len(), "to": rewritten.len(), "unfaithfulness": unfaithfulness }));
+            logs::event("plating.rewrote", json!({ "from": text.len(), "to": rewritten.len(), "unfaithfulness": unfaithfulness }));
             Ok(rewritten)
         } else if sent_back.0.load(Ordering::Relaxed) >= MOST_TIMES_SENT_BACK {
-            logs::event("editor.let_through", json!({ "unfaithfulness": unfaithfulness, "length": text.len() }));
+            logs::event("plating.let_through", json!({ "unfaithfulness": unfaithfulness, "length": text.len() }));
             Ok(text.to_string())
         } else {
             sent_back.0.fetch_add(1, Ordering::Relaxed);
-            logs::event("editor.rejected", json!({ "unfaithfulness": unfaithfulness, "from": text.len(), "to": rewritten.len() }));
+            logs::event("plating.rejected", json!({ "unfaithfulness": unfaithfulness, "from": text.len(), "to": rewritten.len() }));
             bail!(
                 "This wasn't sent. It doesn't follow the style below, and it couldn't be restyled without changing what it says. Rewrite it yourself and send it again.\n\n{style}"
             )
         }
     }
 
-    /// How sure the judge is that the rewrite says something else than the
+    /// How sure the taster is that the rewrite says something else than the
     /// original did — the worse of inventing and dropping, asked separately
     /// because one question about both can't tell a good rewrite from one that
     /// lost a fact. A rewrite that lost or altered a code block is certain.
     fn unfaithfulness(&self, original: &str, rewrite: &str) -> Result<f64> {
         if code_blocks(original).iter().all(|block| rewrite.contains(block)) {
             let pair = format!("FIRST TEXT:\n{original}\n\nSECOND TEXT:\n{rewrite}");
-            let invents = self.judge.probability(INVENTS_QUESTION, &pair)?;
-            let drops = self.judge.probability(DROPS_QUESTION, &pair)?;
+            let invents = self.taster.probability(INVENTS_QUESTION, &pair)?;
+            let drops = self.taster.probability(DROPS_QUESTION, &pair)?;
             Ok(invents.max(drops))
         } else {
             Ok(1.0)
@@ -119,25 +119,25 @@ mod tests {
 
     #[test]
     fn without_a_style_nothing_is_touched() {
-        let editor = Editor::new(None, Arc::new(Judge::claude("haiku")), Chain::of(&["haiku"]));
-        assert_eq!(editor.polish("Whatever, however long.", &SentBack::default()).unwrap(), "Whatever, however long.");
+        let plating = Plating::new(None, Arc::new(Taster::claude("haiku")), Chain::of(&["haiku"]));
+        assert_eq!(plating.polish("Whatever, however long.", &SentBack::default()).unwrap(), "Whatever, however long.");
     }
 
     #[test]
     fn writing_that_cant_be_restyled_is_sent_back_three_times_a_turn_then_goes_out_as_written() {
         // Each try: off style, and a rewrite that drops something
-        let editor = Editor::new(Some("Be brief.".to_string()), Arc::new(crate::judge::answering(&[0.1, 0.1, 0.9].repeat(5))), Chain::of(&["haiku"]));
+        let plating = Plating::new(Some("Be brief.".to_string()), Arc::new(crate::taster::answering(&[0.1, 0.1, 0.9].repeat(5))), Chain::of(&["haiku"]));
         let rewrite = |_: &str, _: &str| Ok("Short.".to_string());
         let this_turn = SentBack::default();
 
         for _ in 0..3 {
-            let refused = editor.polish_with("A long message.", &this_turn, rewrite).unwrap_err();
+            let refused = plating.polish_with("A long message.", &this_turn, rewrite).unwrap_err();
             assert!(refused.to_string().starts_with("This wasn't sent."));
         }
-        assert_eq!(editor.polish_with("A long message.", &this_turn, rewrite).unwrap(), "A long message.");
+        assert_eq!(plating.polish_with("A long message.", &this_turn, rewrite).unwrap(), "A long message.");
 
         let next_turn = SentBack::default();
-        assert!(editor.polish_with("A long message.", &next_turn, rewrite).is_err(), "a new turn is held to the style again");
+        assert!(plating.polish_with("A long message.", &next_turn, rewrite).is_err(), "a new turn is held to the style again");
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Skills: what a session knows about a tool before it calls it.
 //!
 //! Claude Code reads skills from the folder it is configured with, which is
-//! hers alone, so a skill she has is a skill every thread has — and it costs
+//! hers alone, so a skill she has is a skill every chef de partie has — and it costs
 //! nothing until the session reads it.
 //!
 //! Some servers offer a gateway tool: one tool for a whole area, with an
@@ -150,7 +150,7 @@ fn named(name: &str, required: bool, schema: &Value) -> String {
     }
 }
 
-/// A skill of the person's own, copied in so she has it too.
+/// A skill of the chef's own, copied in so she has it too.
 pub fn add(from: &Path) -> Result<String> {
     let folder = from.canonicalize().with_context(|| format!("{} does not exist", from.display()))?;
     if !folder.join("SKILL.md").is_file() {

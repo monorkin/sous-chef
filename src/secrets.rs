@@ -66,7 +66,7 @@ pub fn move_from(service: &str, config: &std::path::Path, name: &str) -> Result<
 /// The logins that the tools she has a profile of her own in keep in the
 /// keyring instead of their config — gh's token, Basecamp's — so her folder
 /// for those tools can travel as files and still arrive logged out. Only
-/// hers: the person's own logins for the same tools sit next to hers, under
+/// hers: the chef's own logins for the same tools sit next to hers, under
 /// the same service, and never leave with her.
 pub fn tool_logins() -> Vec<ToolLogin> {
     if keyring_wanted() {

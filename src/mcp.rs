@@ -4,8 +4,8 @@
 //! the broker starts that server, lists its tools, and offers them to
 //! sessions as its own. No session talks to a server directly, which is what
 //! lets two things happen to every call. On the way out, arguments marked as
-//! prose go through the editor. On the way back, the result is untrusted
-//! text and the judge screens it before a session reads it.
+//! prose go through the plating. On the way back, the result is untrusted
+//! text and the taster screens it before a session reads it.
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
@@ -16,11 +16,11 @@ use std::sync::{Arc, Mutex};
 use crate::broker::{Tool, on_trust};
 use crate::config::Config;
 use crate::conversation::Standing;
-use crate::editor::{Editor, SentBack};
 use crate::held::HeldBack;
-use crate::judge::{Judge, Screening};
 use crate::logs;
 use crate::mcp_server::{self, Server};
+use crate::plating::{Plating, SentBack};
+use crate::taster::{Screening, Taster};
 
 /// Every tool from every server that started and still matches its
 /// fingerprint.
@@ -38,18 +38,18 @@ struct Offered {
     /// What the server says about the tool, in MCP's own words
     /// (`readOnlyHint`). A server that says nothing has said it may write:
     /// a server added today has no prose marked yet, and without this every
-    /// one of its tools — posting ones too — could be handed to a hand.
+    /// one of its tools — posting ones too — could be handed to a commis.
     only_reads: bool,
-    /// The server acts as the person she works for, not as her.
+    /// The server acts as the chef she works for, not as her.
     trusted_only: bool,
     server: Arc<Mutex<Server>>,
-    editor: Arc<Editor>,
-    judge: Arc<Judge>,
+    plating: Arc<Plating>,
+    taster: Arc<Taster>,
     held: Arc<HeldBack>,
 }
 
 impl Catalog {
-    pub fn open(config: &Config, editor: Arc<Editor>, judge: Arc<Judge>, held: Arc<HeldBack>) -> Catalog {
+    pub fn open(config: &Config, plating: Arc<Plating>, taster: Arc<Taster>, held: Arc<HeldBack>) -> Catalog {
         let mut tools = Vec::new();
         let mut servers = BTreeMap::new();
 
@@ -69,8 +69,8 @@ impl Catalog {
                             trusted_only: settings.trusted_only,
                             remote_name,
                             server: server.clone(),
-                            editor: editor.clone(),
-                            judge: judge.clone(),
+                            plating: plating.clone(),
+                            taster: taster.clone(),
                             held: held.clone(),
                         }));
                     }
@@ -84,7 +84,7 @@ impl Catalog {
         Catalog { tools, servers }
     }
 
-    /// A call she makes herself — polling a source, answering in a
+    /// A call she makes herself — polling a printer, answering in a
     /// conversation — rather than one a session asked for. Nothing is
     /// restyled or screened here; the caller does what its text needs.
     pub fn call(&self, server: &str, tool: &str, arguments: &Value) -> Result<String> {
@@ -96,10 +96,9 @@ impl Catalog {
             .call(tool, arguments)
     }
 
-    /// What a thread is offered. A turn on the word of someone who isn't
-    /// trusted can't use the tools of a server that acts as the person she
-    /// works for: they could otherwise have her do things in that person's
-    /// name.
+    /// What a chef de partie is offered. A turn on the word of someone who
+    /// isn't trusted can't use the tools of a server that acts as the chef she
+    /// works for: they could otherwise have her do things in the chef's name.
     pub fn for_standing(&self, standing: Standing, sent_back: &Arc<SentBack>, spoke: &Arc<AtomicBool>) -> Vec<Box<dyn Tool>> {
         self.tools
             .iter()
@@ -110,8 +109,9 @@ impl Catalog {
             .collect()
     }
 
-    /// The tools a hand may be granted. Tools that carry prose for people are
-    /// never among them: a hand reports to its thread, and the thread speaks.
+    /// The tools a commis may be granted. Tools that carry prose for people are
+    /// never among them: a commis reports to its chef de partie, and the chef
+    /// de partie speaks.
     pub fn grant(&self, names: &[String], standing: Standing) -> Result<Vec<Box<dyn Tool>>> {
         names.iter().map(|name| self.grantable(name, standing)).collect()
     }
@@ -126,11 +126,11 @@ impl Catalog {
         if tool.trusted_only && standing != Standing::Trusted {
             bail!("there is no tool called {name} to grant")
         } else if !tool.prose_arguments.is_empty() {
-            bail!("{name} speaks to people, and hands don't. Have the hand report to you and say it yourself.")
+            bail!("{name} speaks to people, and commis don't. Have the commis report to you and say it yourself.")
         } else if !tool.only_reads {
-            bail!("{name} can change things out there, and its server doesn't say otherwise, so a hand can't have it. Have the hand report to you and use {name} yourself.")
+            bail!("{name} can change things out there, and its server doesn't say otherwise, so a commis can't have it. Have the commis report to you and use {name} yourself.")
         } else {
-            // Nothing it carries goes past the editor, so there is nothing to count
+            // Nothing it carries goes past the plating, so there is nothing to count
             Ok(Box::new(Offering { offered: tool.clone(), sent_back: Arc::default(), spoke: Arc::default() }))
         }
     }
@@ -144,7 +144,7 @@ pub fn offered_name(server: &str, tool: &str) -> String {
     }
 }
 
-/// A tool as one turn has it: the editor counts what it sends back to that
+/// A tool as one turn has it: the plating counts what it sends back to that
 /// turn, whichever tool the writing went out through, and the turn knows
 /// once something for people has gone out through it.
 struct Offering {
@@ -177,7 +177,7 @@ impl Tool for Offering {
 
 impl Offered {
     fn call(&self, arguments: &Value, sent_back: &SentBack) -> Result<String> {
-        let arguments = with_prose_polished(arguments, &self.prose_arguments, |text| self.editor.polish(text, sent_back))?;
+        let arguments = with_prose_polished(arguments, &self.prose_arguments, |text| self.plating.polish(text, sent_back))?;
 
         // An error is the server's text as much as a result is: a refusal
         // that quotes what it was sent carries whatever an attacker put there
@@ -186,7 +186,7 @@ impl Offered {
             Ok(result) => result.clone(),
             Err(error) => format!("{error:#}"),
         };
-        match self.judge.screen(&said) {
+        match self.taster.screen(&said) {
             Screening::Clear => outcome.map(|result| shortened(&result)),
             Screening::Suspicious => {
                 logs::event("mcp.withheld", json!({ "tool": self.name, "length": said.len(), "failed": outcome.is_err() }));
@@ -206,7 +206,7 @@ impl Offered {
 
 /// The most of a result a session is shown. Past Claude Code's own limit a
 /// result is put in a file instead, which a turn without a shell can't
-/// open, and a hand can't be sent to. What a listing has most of is at its
+/// open, and a commis can't be sent to. What a listing has most of is at its
 /// end — the newest comments, the last page — so that is the part kept.
 const LONGEST_RESULT: usize = 40_000;
 
@@ -225,7 +225,7 @@ fn shortened(result: &str) -> String {
     )
 }
 
-/// Every argument marked as prose, put through the editor. A mark is a
+/// Every argument marked as prose, put through the plating. A mark is a
 /// top-level argument's name, or a JSON pointer into a gateway tool's
 /// `params` (`/params/content`). One that finds no text is left alone.
 fn with_prose_polished(arguments: &Value, marked: &[String], polish: impl Fn(&str) -> Result<String>) -> Result<Value> {
@@ -272,7 +272,7 @@ mod tests {
 
     #[test]
     fn what_a_server_says_is_screened_whether_the_call_worked_or_not() {
-        let judge = Arc::new(crate::judge::answering(&[0.0, 0.0, 0.95, 0.95]));
+        let taster = Arc::new(crate::taster::answering(&[0.0, 0.0, 0.95, 0.95]));
         let offered = |remote_name: &str| {
             Arc::new(Offered {
                 name: format!("fake_{remote_name}"),
@@ -283,8 +283,8 @@ mod tests {
                 only_reads: remote_name == "shout",
                 trusted_only: false,
                 server: Arc::new(Mutex::new(Server::start(&fake_server()).unwrap())),
-                editor: Arc::new(Editor::new(None, judge.clone(), crate::config::Chain::of(&["haiku"]))),
-                judge: judge.clone(),
+                plating: Arc::new(Plating::new(None, taster.clone(), crate::config::Chain::of(&["haiku"]))),
+                taster: taster.clone(),
                 held: Arc::new(HeldBack::default()),
             })
         };
@@ -311,8 +311,8 @@ mod tests {
     }
 
     #[test]
-    fn a_hand_is_only_granted_what_its_server_says_only_reads() {
-        let judge = Arc::new(Judge::claude("haiku"));
+    fn a_commis_is_only_granted_what_its_server_says_only_reads() {
+        let taster = Arc::new(Taster::claude("haiku"));
         let server = Arc::new(Mutex::new(Server::start(&fake_server()).unwrap()));
         let offered = |name: &str, only_reads: bool, prose_arguments: Vec<String>, trusted_only: bool| {
             Arc::new(Offered {
@@ -324,8 +324,8 @@ mod tests {
                 only_reads,
                 trusted_only,
                 server: server.clone(),
-                editor: Arc::new(Editor::new(None, judge.clone(), crate::config::Chain::of(&["haiku"]))),
-                judge: judge.clone(),
+                plating: Arc::new(Plating::new(None, taster.clone(), crate::config::Chain::of(&["haiku"]))),
+                taster: taster.clone(),
                 held: Arc::new(HeldBack::default()),
             })
         };
@@ -342,13 +342,13 @@ mod tests {
         let trusted = Standing::Trusted;
         assert_eq!(catalog.grant(&["mail_search".to_string()], trusted).unwrap().len(), 1);
         let writes = catalog.grant(&["mail_threads".to_string()], trusted).err().unwrap().to_string();
-        assert!(writes.contains("can change things out there"), "a server added today has no prose marked, and still can't post through a hand");
+        assert!(writes.contains("can change things out there"), "a server added today has no prose marked, and still can't post through a commis");
         assert!(catalog.grant(&["mail_digest".to_string()], trusted).err().unwrap().to_string().contains("speaks to people"));
         let turn = Arc::new(SentBack::default());
         let spoke = Arc::new(AtomicBool::new(false));
-        assert_eq!(catalog.for_standing(trusted, &turn, &spoke).len(), 4, "the thread itself still gets everything");
+        assert_eq!(catalog.for_standing(trusted, &turn, &spoke).len(), 4, "the chef de partie itself still gets everything");
 
-        // A server that acts as the person: never for a turn on an untrusted word
+        // A server that acts as the chef: never for a turn on an untrusted word
         assert_eq!(catalog.grant(&["my_inbox".to_string()], trusted).unwrap().len(), 1);
         assert!(catalog.grant(&["my_inbox".to_string()], Standing::CanAssignWork).is_err());
         let untrusted = catalog.for_standing(Standing::CanAssignWork, &turn, &spoke);
@@ -361,7 +361,7 @@ mod tests {
     #[test]
     fn a_turn_has_spoken_once_something_for_people_went_out_through_a_tool() {
         // Both answers screened clear, so neither is held back
-        let judge = Arc::new(crate::judge::answering(&[0.0, 0.0]));
+        let taster = Arc::new(crate::taster::answering(&[0.0, 0.0]));
         let server = Arc::new(Mutex::new(Server::start(&fake_server()).unwrap()));
         let offered = |prose_arguments: Vec<String>| {
             Arc::new(Offered {
@@ -373,8 +373,8 @@ mod tests {
                 only_reads: false,
                 trusted_only: false,
                 server: server.clone(),
-                editor: Arc::new(Editor::new(None, judge.clone(), crate::config::Chain::of(&["haiku"]))),
-                judge: judge.clone(),
+                plating: Arc::new(Plating::new(None, taster.clone(), crate::config::Chain::of(&["haiku"]))),
+                taster: taster.clone(),
                 held: Arc::new(HeldBack::default()),
             })
         };

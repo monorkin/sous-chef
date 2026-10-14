@@ -8,10 +8,10 @@
 //! can reach. Permissions are skipped inside, because the sandbox is the
 //! permission system.
 //!
-//! A hand gets the project writable, except for the parts of .git that run
+//! A commis gets the project writable, except for the parts of .git that run
 //! code: the brain isn't sandboxed and will run git in that folder later, and
-//! a hook or an fsmonitor command planted by a hand would run as the brain.
-//! A reviewer gets the whole project read-only.
+//! a hook or an fsmonitor command planted by a commis would run as the brain.
+//! A pass gets the whole project read-only.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -45,12 +45,12 @@ pub const BROKER_INSIDE: &str = "/run/broker.sock";
 
 /// Claude Code's switches for a session in here: workflows fan out into
 /// more sessions, and the nonessential traffic is telemetry the proxy
-/// refuses anyway. Background shells stay: a hand can start the test suite
+/// refuses anyway. Background shells stay: a commis can start the test suite
 /// and keep working while it runs.
 const DOES_ITS_OWN_WORK: [&str; 2] = ["CLAUDE_CODE_DISABLE_WORKFLOWS", "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"];
 /// Told the package managers themselves, so each fails at once with its own
 /// message instead of retrying against a proxy that refuses everything: a
-/// day of hands spent minutes at a time asking mise and yarn for the network.
+/// day of commis spent minutes at a time asking mise and yarn for the network.
 const WORKS_OFFLINE: [(&str, &str); 5] = [
     ("CARGO_NET_OFFLINE", "true"),
     ("MISE_OFFLINE", "1"),
@@ -60,9 +60,9 @@ const WORKS_OFFLINE: [(&str, &str); 5] = [
 ];
 /// Where a session builds when mbx doesn't keep its target folder. Never the
 /// project's own target folder: what a session builds shouldn't land where
-/// the person's own builds are picked up from.
+/// the chef's own builds are picked up from.
 const BUILD_INSIDE: &str = "/build";
-const CARGO_INSIDE: &str = "/home/hand/.cargo";
+const CARGO_INSIDE: &str = "/home/commis/.cargo";
 /// Where `cargo` is mbx, first on the PATH. In the session's own /tmp: it is
 /// written as the session starts, and goes with it.
 const MBX_SHIM_INSIDE: &str = "/tmp/mbx";
@@ -84,12 +84,12 @@ pub struct Outside {
     pub proxy_socket: PathBuf,
     pub toolchains: Toolchains,
     pub time_limit: Duration,
-    /// Her git identity, when she has one of her own: what a hand's commits
-    /// are authored as. It carries no credential; a hand can't push.
+    /// Her git identity, when she has one of her own: what a commis's commits
+    /// are authored as. It carries no credential; a commis can't push.
     pub gitconfig: Option<PathBuf>,
     /// Whether the user's systemd can be asked for a scope. With one, a
     /// session gets a ceiling on memory and on how many processes it may
-    /// have, so a hand that forks without end or eats all the memory takes
+    /// have, so a commis that forks without end or eats all the memory takes
     /// itself down and not the machine sous-chef runs on.
     pub scopes: bool,
     pub models: Models,
@@ -97,8 +97,8 @@ pub struct Outside {
 
 /// Shares of the machine's memory, which systemd takes as percentages. A
 /// flat 8G was too little: cargo builds with one rustc per core, and on 32
-/// cores a test build went past it and the kernel killed the reviewer
-/// mid-review. Past the first share a session is slowed down, past the
+/// cores a test build went past it and the kernel killed the pass
+/// mid-check. Past the first share a session is slowed down, past the
 /// second it is stopped. It may swap as much again: without swap, one slowed
 /// down past its share has nowhere to put what it needs, the pressure that
 /// builds has systemd-oomd kill it long before its ceiling: a fat-LTO link
@@ -112,7 +112,7 @@ const SECONDS_TO_FIND_OUT: u64 = 10;
 impl Outside {
     /// Asked with the very limits a session will get, so a systemd that
     /// gives scopes but can't set these is found out here and not by the
-    /// first hand.
+    /// first commis.
     pub fn can_have_scopes() -> bool {
         let mut trial = scope();
         trial.arg("/usr/bin/true");
@@ -141,8 +141,8 @@ pub fn make_scratch(directory: &Path) -> std::io::Result<()> {
 }
 
 /// How many things a session's cargo compiles at once: a quarter of the
-/// cores, and at least two. Cargo would take every core, and two hands and a
-/// reviewer each doing that on 32 cores put 24 GB of rustc in memory at
+/// cores, and at least two. Cargo would take every core, and two commis and a
+/// pass each doing that on 32 cores put 24 GB of rustc in memory at
 /// once and had the kernel kill one of them mid-build.
 fn build_jobs() -> usize {
     std::thread::available_parallelism().map(|it| it.get()).unwrap_or(4).div_ceil(4).max(2)
@@ -164,7 +164,7 @@ pub struct Sandbox<'outside> {
     pub outside: &'outside Outside,
     pub broker_socket: Option<PathBuf>,
     pub writable: bool,
-    /// Where builds of this project go, on the host: kept between hands so
+    /// Where builds of this project go, on the host: kept between commis so
     /// the second one doesn't compile the world again.
     pub build_dir: PathBuf,
     pub services: Vec<Service>,
@@ -173,7 +173,7 @@ pub struct Sandbox<'outside> {
     /// offline, because they aren't.
     pub registries: Option<PathBuf>,
     /// Where the session's /tmp and home live, on disk. A tmpfs there is
-    /// memory: one reviewer building into /tmp held 17 GB of it, and the
+    /// memory: one pass building into /tmp held 17 GB of it, and the
     /// machine ran out.
     pub scratch: PathBuf,
 }
@@ -197,9 +197,9 @@ impl Sandbox<'_> {
             .arg("/tmp")
             .arg("--bind")
             .arg(self.scratch.join("home"))
-            .arg("/home/hand");
+            .arg("/home/commis");
         if let Some(gitconfig) = &self.outside.gitconfig {
-            command.arg("--ro-bind").arg(gitconfig).arg("/home/hand/.gitconfig");
+            command.arg("--ro-bind").arg(gitconfig).arg("/home/commis/.gitconfig");
         }
 
         for certificates in ["/etc/ssl", "/etc/ca-certificates", "/etc/pki"] {
@@ -234,7 +234,7 @@ impl Sandbox<'_> {
         command
             .arg("--chdir")
             .arg(&self.project)
-            .args(["--setenv", "HOME", "/home/hand"])
+            .args(["--setenv", "HOME", "/home/commis"])
             .args(["--setenv", "LANG", "C.UTF-8"])
             .args(["--setenv", "PATH", &self.path()])
             .args(["--setenv", "CLAUDE_CONFIG_DIR", "/profile"])
@@ -254,8 +254,8 @@ impl Sandbox<'_> {
 
     /// mbx keeps a session's target folder in her store, behind a `target`
     /// link in the project, and prunes it to a budget. Only where it can: a
-    /// reviewer can't write that link, so it uses one only when the hand left
-    /// it there; and a target that is a plain folder is the person's own
+    /// pass can't write that link, so it uses one only when the commis left
+    /// it there; and a target that is a plain folder is the chef's own
     /// build, which no session builds into.
     fn mbx_keeps_the_target(&self) -> bool {
         let Some(mbx) = &self.outside.toolchains.mbx else {
@@ -282,7 +282,7 @@ impl Sandbox<'_> {
     /// Background shells and the tools that read and stop them are in:
     /// waiting on a test suite while doing something else is still one
     /// worker. (`Monitor` isn't: Claude Code drops it from a `--tools` list.)
-    /// A reviewer can look and run things, not change them.
+    /// A pass can look and run things, not change them.
     pub fn tools(&self) -> &'static str {
         if self.writable {
             "Bash,Read,Edit,Write,Glob,Grep,Skill,ToolSearch,TaskOutput,TaskStop"
@@ -343,7 +343,7 @@ impl Sandbox<'_> {
                     lock_git(command, repository);
                 }
             } else {
-                // Starting a repository is the brain's to do. A hand that
+                // Starting a repository is the brain's to do. A commis that
                 // could would write the hooks and config of one from scratch
                 command.arg("--tmpfs").arg(&git).arg("--remount-ro").arg(&git);
             }
@@ -356,7 +356,7 @@ impl Sandbox<'_> {
         }
     }
 
-    /// The person's `mise trust` lives in a home the sandbox doesn't have,
+    /// The chef's `mise trust` lives in a home the sandbox doesn't have,
     /// and a mise that doesn't trust the project's config refuses to start
     /// anything at all. A session runs the project's code either way, so
     /// its config is trusted in here — and in a worktree, the repository's
@@ -390,7 +390,7 @@ fn lock_git(command: &mut Command, repository: &Path) {
 /// holds the worktree — the .claude/worktrees layout — so a session in the
 /// worktree can use git. Only the nearest repository above it counts, and
 /// only when the worktree's .git file points into that repository's own
-/// worktrees: that file sits where a hand working in the repository could
+/// worktrees: that file sits where a commis working in the repository could
 /// have rewritten it, and it must not bring in anything else.
 fn repository_holding(project: &Path) -> Option<PathBuf> {
     let pointer = std::fs::read_to_string(project.join(".git")).ok()?;
@@ -426,7 +426,7 @@ mod tests {
     }
 
     #[test]
-    fn a_hand_can_write_its_project_but_not_the_parts_of_git_that_run_code() {
+    fn a_commis_can_write_its_project_but_not_the_parts_of_git_that_run_code() {
         let project = std::env::temp_dir().join(format!("sous-chef-sandbox-{}", std::process::id()));
         fs::create_dir_all(project.join(".git/hooks")).unwrap();
         fs::write(project.join(".git/config"), "").unwrap();
@@ -443,21 +443,21 @@ mod tests {
         };
         let arguments = arguments_of(&Sandbox {
             project: project.clone(),
-            profile: PathBuf::from("/data/hands/h1/profile"),
+            profile: PathBuf::from("/data/commis/h1/profile"),
             outside: &outside,
             broker_socket: None,
             writable: true,
             build_dir: PathBuf::from("/data/builds/abc"),
             services: vec![Service { port: 33380, socket: PathBuf::from("/run/sous-chef/service-h1-0.sock") }],
             registries: None,
-            scratch: PathBuf::from("/data/hands/h1"),
+            scratch: PathBuf::from("/data/commis/h1"),
         });
 
         assert!(arguments.contains(&"--unshare-all".to_string()));
         let git = format!("{project_path}/.git");
         assert_eq!(
             binds(&arguments, "--bind"),
-            [("/data/hands/h1/tmp", "/tmp"), ("/data/hands/h1/home", "/home/hand"), (project_path, project_path), (git.as_str(), git.as_str()), ("/data/hands/h1/profile", "/profile"), ("/data/builds/abc", BUILD_INSIDE)]
+            [("/data/commis/h1/tmp", "/tmp"), ("/data/commis/h1/home", "/home/commis"), (project_path, project_path), (git.as_str(), git.as_str()), ("/data/commis/h1/profile", "/profile"), ("/data/builds/abc", BUILD_INSIDE)]
         );
         assert!(binds(&arguments, "--ro-bind").contains(&("/run/sous-chef/service-h1-0.sock", "/run/service-0.sock")));
         assert!(arguments.last().unwrap() == "sandbox" && arguments[arguments.len() - 2].contains("TCP-LISTEN:33380,fork,bind=127.0.0.1 UNIX-CONNECT:/run/service-0.sock"));
@@ -471,19 +471,19 @@ mod tests {
 
         let with_registries = arguments_of(&Sandbox {
             project: project.clone(),
-            profile: PathBuf::from("/data/hands/h1/profile"),
+            profile: PathBuf::from("/data/commis/h1/profile"),
             outside: &outside,
             broker_socket: None,
             writable: true,
             build_dir: PathBuf::from("/data/builds/abc"),
             services: Vec::new(),
             registries: Some(PathBuf::from("/run/sous-chef/proxy-h1.sock")),
-            scratch: PathBuf::from("/data/hands/h1"),
+            scratch: PathBuf::from("/data/commis/h1"),
         });
         assert!(binds(&with_registries, "--ro-bind").contains(&("/run/sous-chef/proxy-h1.sock", "/run/proxy.sock")), "its own proxy stands in for the shared one");
         assert!(!with_registries.iter().any(|it| it == "MISE_OFFLINE" || it == "CARGO_NET_OFFLINE"), "the package managers aren't told they are offline");
         assert!(with_registries.windows(3).any(|it| it[0] == "--setenv" && it[1] == "GIT_TERMINAL_PROMPT" && it[2] == "0"), "git still never asks for a login");
-        assert!(!arguments.iter().any(|it| it == "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"), "a hand may run its tests in the background");
+        assert!(!arguments.iter().any(|it| it == "CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"), "a commis may run its tests in the background");
         let read_only = binds(&arguments, "--ro-bind");
         let config = format!("{git}/config");
         let hooks = format!("{git}/hooks");
@@ -499,7 +499,7 @@ mod tests {
     /// The real thing, with a shell where Claude would be: what the session
     /// would find in its environment and be able to do to the project.
     #[test]
-    fn a_hand_gets_none_of_sous_chefs_environment_and_cannot_start_or_repoint_a_repository() {
+    fn a_commis_gets_none_of_sous_chefs_environment_and_cannot_start_or_repoint_a_repository() {
         if crate::paths::program("bwrap").is_none() || crate::paths::program("socat").is_none() {
             return;
         }
@@ -542,7 +542,7 @@ mod tests {
 
         let environment = run(&plain, "env");
         assert!(!environment.contains("SOUS_CHEF_TEST_SECRET"), "{environment}");
-        assert!(environment.contains("HOME=/home/hand"));
+        assert!(environment.contains("HOME=/home/commis"));
 
         let attempts = "touch made-it; (mkdir -p .git/hooks && echo 'evil' > .git/hooks/pre-commit) 2>/dev/null && echo started; echo 'gitdir: /evil' > .git 2>/dev/null && echo repointed; echo done";
         assert_eq!(run(&plain, attempts).trim(), "done");
@@ -555,8 +555,8 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
-    /// git keeps absolute paths: a worktree the person made works for a
-    /// hand, and one a hand made works for the person.
+    /// git keeps absolute paths: a worktree the chef made works for a
+    /// commis, and one a commis made works for the chef.
     #[test]
     fn worktrees_work_on_both_sides_of_the_sandbox() {
         if crate::paths::program("bwrap").is_none() || crate::paths::program("socat").is_none() {
@@ -620,7 +620,7 @@ mod tests {
         let said = run(&worktree, "echo $MISE_TRUSTED_CONFIG_PATHS");
         assert_eq!(said.trim(), format!("{}:{}", worktree.display(), project.display()), "mise trusts the worktree and the repository above it");
 
-        // A .git file a hand rewrote to point at some other repository
+        // A .git file a commis rewrote to point at some other repository
         let elsewhere = root.join("elsewhere");
         fs::create_dir_all(&elsewhere).unwrap();
         Command::new("git").arg("-C").arg(&elsewhere).args(["init", "-q"]).output().unwrap();
@@ -633,11 +633,11 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 
-    /// A hand with Rust and a bridged service, for real: a crate with a
+    /// A commis with Rust and a bridged service, for real: a crate with a
     /// dependency builds offline from the host's cache, and a listener on
     /// the host's loopback answers on the sandbox's.
     #[test]
-    fn a_hand_builds_offline_and_reaches_a_service_it_was_granted() {
+    fn a_commis_builds_offline_and_reaches_a_service_it_was_granted() {
         if crate::paths::program("bwrap").is_none() || crate::paths::program("socat").is_none() {
             return;
         }
@@ -724,28 +724,28 @@ mod tests {
         };
         let sandbox = |writable| Sandbox {
             project: PathBuf::from("/srv/project"),
-            profile: PathBuf::from("/data/hands/h1/profile"),
+            profile: PathBuf::from("/data/commis/h1/profile"),
             outside: &outside,
             broker_socket: None,
             writable,
             build_dir: PathBuf::from("/data/builds/abc"),
             services: Vec::new(),
             registries: None,
-            scratch: PathBuf::from("/data/hands/h1"),
+            scratch: PathBuf::from("/data/commis/h1"),
         };
 
-        let hand: Vec<&str> = sandbox(true).tools().split(',').collect();
-        let reviewer: Vec<&str> = sandbox(false).tools().split(',').collect();
-        assert!(hand.contains(&"Edit") && hand.contains(&"Bash"));
-        assert!(!reviewer.contains(&"Edit") && !reviewer.contains(&"Write"), "a reviewer changes nothing");
-        assert!(hand.contains(&"TaskOutput") && hand.contains(&"TaskStop"), "reading its own background work is fine");
+        let commis: Vec<&str> = sandbox(true).tools().split(',').collect();
+        let pass: Vec<&str> = sandbox(false).tools().split(',').collect();
+        assert!(commis.contains(&"Edit") && commis.contains(&"Bash"));
+        assert!(!pass.contains(&"Edit") && !pass.contains(&"Write"), "a pass changes nothing");
+        assert!(commis.contains(&"TaskOutput") && commis.contains(&"TaskStop"), "reading its own background work is fine");
         for spends_more in ["Task", "Agent", "Workflow", "SendMessage", "RemoteTrigger", "CronCreate", "ScheduleWakeup"] {
-            assert!(!hand.contains(&spends_more) && !reviewer.contains(&spends_more), "{spends_more} would start more sessions");
+            assert!(!commis.contains(&spends_more) && !pass.contains(&spends_more), "{spends_more} would start more sessions");
         }
     }
 
     #[test]
-    fn a_reviewer_can_write_nothing_in_the_project() {
+    fn a_pass_can_write_nothing_in_the_project() {
         let installs = PathBuf::from("/home/someone/.local/share/mise/installs");
         let outside = Outside {
             proxy_socket: PathBuf::from("/run/sous-chef/proxy.sock"),
@@ -762,14 +762,14 @@ mod tests {
         };
         let arguments = arguments_of(&Sandbox {
             project: PathBuf::from("/home/someone/project"),
-            profile: PathBuf::from("/data/reviews/r1/profile"),
+            profile: PathBuf::from("/data/passes/r1/profile"),
             outside: &outside,
-            broker_socket: Some(PathBuf::from("/run/sous-chef/hand-h1.sock")),
+            broker_socket: Some(PathBuf::from("/run/sous-chef/commis-h1.sock")),
             writable: false,
             build_dir: PathBuf::from("/data/builds/abc"),
             services: Vec::new(),
             registries: None,
-            scratch: PathBuf::from("/data/hands/h1"),
+            scratch: PathBuf::from("/data/commis/h1"),
         });
 
         let bwrap = arguments.iter().position(|it| it == "bwrap").expect("with a scope to be had, bwrap runs inside one");
@@ -778,15 +778,15 @@ mod tests {
         assert!(arguments[..bwrap].contains(&"MemorySwapMax=50%".to_string()), "a session may swap rather than be killed under pressure");
         assert!(arguments[..bwrap].iter().any(|it| it.starts_with("TasksMax=")));
 
-        assert_eq!(binds(&arguments, "--bind"), [("/data/hands/h1/tmp", "/tmp"), ("/data/hands/h1/home", "/home/hand"), ("/data/reviews/r1/profile", "/profile"), ("/data/builds/abc", BUILD_INSIDE)]);
+        assert_eq!(binds(&arguments, "--bind"), [("/data/commis/h1/tmp", "/tmp"), ("/data/commis/h1/home", "/home/commis"), ("/data/passes/r1/profile", "/profile"), ("/data/builds/abc", BUILD_INSIDE)]);
         assert!(arguments.windows(3).any(|it| it[0] == "--setenv" && it[1] == "CARGO_TARGET_DIR" && it[2] == BUILD_INSIDE), "without mbx, builds go to a folder of their own");
         assert!(binds(&arguments, "--ro-bind").contains(&(installs.to_str().unwrap(), installs.to_str().unwrap())));
-        assert!(binds(&arguments, "--ro-bind").contains(&("/home/someone/.config/sous-chef/tools/gitconfig", "/home/hand/.gitconfig")), "her commits are authored as her");
+        assert!(binds(&arguments, "--ro-bind").contains(&("/home/someone/.config/sous-chef/tools/gitconfig", "/home/commis/.gitconfig")), "her commits are authored as her");
         assert!(arguments.windows(3).any(|it| {
             it[0] == "--setenv" && it[1] == "PATH" && it[2] == "/home/someone/.local/share/mise/installs/ruby/3.4.7/bin:/usr/bin"
         }));
         assert!(binds(&arguments, "--ro-bind").contains(&("/home/someone/project", "/home/someone/project")));
-        assert!(binds(&arguments, "--ro-bind").contains(&("/run/sous-chef/hand-h1.sock", BROKER_INSIDE)));
+        assert!(binds(&arguments, "--ro-bind").contains(&("/run/sous-chef/commis-h1.sock", BROKER_INSIDE)));
         assert!(arguments.windows(3).any(|it| it[0] == "--setenv" && it[1] == "MISE_TRUSTED_CONFIG_PATHS" && it[2] == "/home/someone/project"));
     }
 
@@ -806,14 +806,14 @@ mod tests {
         };
         let sandbox = |project: &str, writable| Sandbox {
             project: root.join(project),
-            profile: PathBuf::from("/data/hands/h1/profile"),
+            profile: PathBuf::from("/data/commis/h1/profile"),
             outside: &outside,
             broker_socket: None,
             writable,
             build_dir: PathBuf::from("/data/builds/abc"),
             services: Vec::new(),
             registries: None,
-            scratch: PathBuf::from("/data/hands/h1"),
+            scratch: PathBuf::from("/data/commis/h1"),
         };
         for project in ["fresh", "linked", "own-build"] {
             fs::create_dir_all(root.join(project)).unwrap();
@@ -830,10 +830,10 @@ mod tests {
         assert!(script.contains("MBX_CARGO_SHIM_MODE=1 MBX_CARGO_SHIM_PATH=/tmp/mbx/cargo exec /installs/mr-boxington/1.10.0/mbx \"$@\""));
 
         let builds_in_its_own_folder = |arguments: &[String]| arguments.windows(3).any(|it| it[0] == "--setenv" && it[1] == "CARGO_TARGET_DIR");
-        assert!(!builds_in_its_own_folder(&arguments), "a hand in a fresh worktree builds where mbx keeps it");
-        assert!(!builds_in_its_own_folder(&arguments_of(&sandbox("linked", false))), "a reviewer builds where the hand's link leads");
-        assert!(builds_in_its_own_folder(&arguments_of(&sandbox("fresh", false))), "a reviewer can't make the link");
-        assert!(builds_in_its_own_folder(&arguments_of(&sandbox("own-build", true))), "the person's own target folder is never built into");
+        assert!(!builds_in_its_own_folder(&arguments), "a commis in a fresh worktree builds where mbx keeps it");
+        assert!(!builds_in_its_own_folder(&arguments_of(&sandbox("linked", false))), "a pass builds where the commis's link leads");
+        assert!(builds_in_its_own_folder(&arguments_of(&sandbox("fresh", false))), "a pass can't make the link");
+        assert!(builds_in_its_own_folder(&arguments_of(&sandbox("own-build", true))), "the chef's own target folder is never built into");
         fs::remove_dir_all(root).unwrap();
     }
 }

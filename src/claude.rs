@@ -1,8 +1,8 @@
 //! Running Claude Code headlessly, and the credentials it runs with.
 //!
-//! A hand gets a profile holding the access token and nothing else. Without
+//! A commis gets a profile holding the access token and nothing else. Without
 //! the refresh token a sandbox can never rotate the real login out from under
-//! the brain; refreshing stays on the brain's side, which rewrites the hand's
+//! the brain; refreshing stays on the brain's side, which rewrites the commis's
 //! credentials file from outside — Claude Code re-reads it mid-session.
 
 use anyhow::{Context, Result, bail};
@@ -38,9 +38,9 @@ pub struct Reply {
 
 /// Claude Code itself, never what stands in front of it on the PATH. A mise
 /// shim, or a wrapper script that runs mise, works here and not in a
-/// sandbox, which has no home, no mise config and no network — every hand
+/// sandbox, which has no home, no mise config and no network — every commis
 /// would die on startup. For those, mise is asked from the home folder where
-/// the installed binary is, as it is for the hands' toolchains.
+/// the installed binary is, as it is for the commis's toolchains.
 pub fn binary() -> Result<PathBuf> {
     let found = paths::program("claude")
         .context("claude is not on the PATH")?
@@ -83,8 +83,8 @@ impl std::fmt::Display for OutOfTime {
 
 impl std::error::Error for OutOfTime {}
 
-/// What a turn has running on its behalf that isn't below it: hands and
-/// reviewers are started by the broker, so stopping the turn's own process
+/// What a turn has running on its behalf that isn't below it: commis and
+/// the pass are started by the broker, so stopping the turn's own process
 /// doesn't reach them. When the turn is over, whatever is still going is
 /// stopped, and nothing more is started for it.
 #[derive(Default)]
@@ -120,7 +120,7 @@ impl Started {
 /// One headless run. What claude is told goes in on stdin, never as an
 /// argument: arguments are there for every user of the machine to read, and
 /// what people write to her is not theirs to see. They also have a size
-/// limit that a long review would run into.
+/// limit that a long pass would run into.
 pub fn reply_of(command: &mut Command, told: &str, limit: Duration, started: Option<&Started>) -> Result<Reply> {
     if started.is_some_and(|it| it.is_over()) {
         bail!("the turn this was for is over");
@@ -215,7 +215,7 @@ pub fn says_the_session_is_gone(error: &anyhow::Error) -> bool {
 
 /// Claude Code refreshes her login now and then, and the token a session
 /// held until then is refused from that moment: "401 OAuth access token has
-/// been revoked". A hand's copy has no refresh token either, so one that
+/// been revoked". A commis's copy has no refresh token either, so one that
 /// outlives its access token is told "has expired". Either way the session
 /// itself is whole and goes on with her current one.
 pub fn says_the_login_went_stale(error: &anyhow::Error) -> bool {
@@ -223,19 +223,19 @@ pub fn says_the_login_went_stale(error: &anyhow::Error) -> bool {
     error.contains("access token has been revoked") || error.contains("access token has expired")
 }
 
-/// What a hand's or a reviewer's session is told when it goes on in the
+/// What a commis's or a pass's session is told when it goes on in the
 /// same session on a fresh copy of her login.
 pub const CARRY_ON: &str = "Your run was cut off part way — the login it ran on was refreshed underneath it — and you have just been started again in the same session. Nothing you did is lost. Look at where things stand and carry on from there; when you are done, report as you would have.";
-pub const ON_ANOTHER_ACCOUNT: &str = "Your run was cut off part way — the Claude allowance of the account it ran on is used up — and you have just been started again in the same session on another account. Nothing you did is lost. The limit message in your history is about that account, not about anything in the project. Look at where things stand and carry on from there; when you are done, report as you would have.";
+pub const ON_ANOTHER_SUPPLIER: &str = "Your run was cut off part way — the Claude allowance of the supplier it ran on is used up — and you have just been started again in the same session on another supplier. Nothing you did is lost. The limit message in your history is about that supplier, not about anything in the project. Look at where things stand and carry on from there; when you are done, report as you would have.";
 
-/// A hand's or a reviewer's run, and once more on her current login when the
+/// A commis's or a pass's run, and once more on her current login when the
 /// one it ran on can't go on and hers can: refreshed underneath it, or spent
-/// on an account she has since moved off. A hand keeps the copy it started
-/// with, so when she switched accounts every hand already running went on
-/// to the spent one's limit, and its thread told people she was out of
+/// on a supplier she has since moved off. A commis keeps the copy it started
+/// with, so when she switched suppliers every commis already running went on
+/// to the spent one's limit, and its chef de partie told people she was out of
 /// Claude for hours. The run gets nothing the first time, and what to tell
 /// its resumed session the second. `refresh` copies her login in and says
-/// whether it is a different one; it is told when the account was spent, so
+/// whether it is a different one; it is told when the supplier was spent, so
 /// it can move her off it first.
 pub fn again_on_her_current_login<T>(refresh: impl FnOnce(bool) -> Result<bool>, mut run: impl FnMut(Option<&str>) -> Result<T>) -> Result<T> {
     match run(None) {
@@ -245,7 +245,7 @@ pub fn again_on_her_current_login<T>(refresh: impl FnOnce(bool) -> Result<bool>,
         }
         Err(error) if error.downcast_ref::<OutOfQuota>().is_some() => {
             if refresh(true)? {
-                run(Some(ON_ANOTHER_ACCOUNT))
+                run(Some(ON_ANOTHER_SUPPLIER))
             } else {
                 Err(error)
             }
@@ -314,7 +314,7 @@ fn stop_with_everything_it_started(root: libc::pid_t) {
 }
 
 /// Everything below a process, leaving the process itself alone — for
-/// sous-chef stopping the threads and hands on the way out.
+/// sous-chef stopping the chefs de partie and commis on the way out.
 pub fn stop_everything_started_by(root: libc::pid_t) {
     kill(&everything_started_by(root));
 }
@@ -362,7 +362,7 @@ fn parent_in(stat: &str) -> Option<libc::pid_t> {
     after_name.split_whitespace().nth(1)?.parse().ok()
 }
 
-/// Judging and editing sit in front of every message in and out, outside the
+/// Tasting and plating sit in front of every message in and out, outside the
 /// time a run is given, so they get a limit of their own.
 const SECONDS_TO_ANSWER: u64 = 180;
 
@@ -398,7 +398,7 @@ pub fn ask(model: &str, prompt: &str, text: &str) -> Result<String> {
 }
 
 /// `claude auth login` in her own folder, at this terminal: the one time
-/// a person is needed. Nothing of the person's own Claude folder is read.
+/// a person is needed. Nothing of the chef's own Claude folder is read.
 pub fn log_in() -> Result<()> {
     let home = paths::claude_config_home();
     paths::make_private_dir(&home)?;
@@ -411,7 +411,7 @@ pub fn log_in() -> Result<()> {
         bail!("claude didn't finish logging in");
     }
     println!("{}", login());
-    println!("`sous-chef claude account add --alias <name>` keeps this login in her rotation.");
+    println!("`sous-chef claude supplier add --alias <name>` keeps this login in her rotation.");
     Ok(())
 }
 
@@ -419,8 +419,8 @@ pub fn log_in() -> Result<()> {
 /// config folder she works from, which is the allowance she is spending.
 pub fn login() -> String {
     let home = paths::claude_config_home();
-    let account = read_json(&home.join(".claude.json")).ok().map(|it| it["oauthAccount"].clone()).unwrap_or_default();
-    match account["emailAddress"].as_str() {
+    let supplier = read_json(&home.join(".claude.json")).ok().map(|it| it["oauthAccount"].clone()).unwrap_or_default();
+    match supplier["emailAddress"].as_str() {
         Some(address) => format!("{address} ({})", home.display()),
         None => format!("nobody is logged in under {}", home.display()),
     }
@@ -433,7 +433,7 @@ const LONGEST_COMMAND_MS: &str = "3600000";
 
 /// What a commit or a pull request says is hers to say: Claude Code's own
 /// co-author trailer, "made with" line and session link are all turned off,
-/// in her folder and in every hand's. Whatever else is set there stays.
+/// in her folder and in every commis's. Whatever else is set there stays.
 pub fn write_settings(home: &Path) -> Result<()> {
     let path = home.join("settings.json");
     let mut settings = if path.exists() { read_json(&path)? } else { json!({}) };
@@ -442,7 +442,7 @@ pub fn write_settings(home: &Path) -> Result<()> {
     fs::write(&path, serde_json::to_string_pretty(&settings)?).with_context(|| format!("could not write {}", path.display()))
 }
 
-pub fn write_hand_profile(profile: &Path) -> Result<()> {
+pub fn write_commis_profile(profile: &Path) -> Result<()> {
     let home = paths::claude_config_home();
     let credentials: Value = read_json(&home.join(".credentials.json"))?;
     let identity: Value = read_json(&home.join(".claude.json"))?;
@@ -450,7 +450,7 @@ pub fn write_hand_profile(profile: &Path) -> Result<()> {
     write_private(&profile.join(".credentials.json"), &access_only(&credentials)?)?;
     write_settings(profile)?;
     // A sandboxed session sees no folder of hers but this one, and what she
-    // knows about using a tool is worth as much to a hand as to a thread
+    // knows about using a tool is worth as much to a commis as to a chef de partie
     crate::skills::copy_into_profile(profile)?;
     write_private(
         &profile.join(".claude.json"),
@@ -462,12 +462,12 @@ pub fn write_hand_profile(profile: &Path) -> Result<()> {
     )
 }
 
-/// A hand's copy of the login, taken again before a round: Claude Code
+/// A commis's copy of the login, taken again before a round: Claude Code
 /// refreshes the token in her folder now and then and the old one is
-/// revoked with it, so a hand sent back an hour later on the copy it started
+/// revoked with it, so a commis sent back an hour later on the copy it started
 /// with would be refused at the door and discarded, work and all.
-/// Says whether the copy is a different login from the one the hand had.
-pub fn refresh_hand_login(profile: &Path) -> Result<bool> {
+/// Says whether the copy is a different login from the one the commis had.
+pub fn refresh_commis_login(profile: &Path) -> Result<bool> {
     copy_login(&paths::claude_config_home().join(".credentials.json"), &profile.join(".credentials.json"))
 }
 
@@ -616,13 +616,13 @@ mod tests {
     }
 
     #[test]
-    fn a_run_on_a_spent_account_goes_on_on_hers_once_she_has_moved_off_it() {
+    fn a_run_on_a_spent_supplier_goes_on_on_hers_once_she_has_moved_off_it() {
         let spent = || anyhow::Error::new(OutOfQuota { said: "You've hit your session limit · resets 7pm".to_string() });
 
         let mut told = None;
         let moved = again_on_her_current_login(
             |was_spent| {
-                assert!(was_spent, "the refresh is told the account was spent, so it can move her off it");
+                assert!(was_spent, "the refresh is told the supplier was spent, so it can move her off it");
                 Ok(true)
             },
             |again| match again {
@@ -634,33 +634,33 @@ mod tests {
             },
         );
         assert_eq!(moved.unwrap(), "verdict");
-        assert_eq!(told.as_deref(), Some(ON_ANOTHER_ACCOUNT));
+        assert_eq!(told.as_deref(), Some(ON_ANOTHER_SUPPLIER));
 
         let nowhere_to_go = again_on_her_current_login(|_| Ok(false), |again| -> Result<()> {
-            assert!(again.is_none(), "with no other account there is no second go");
+            assert!(again.is_none(), "with no other supplier there is no second go");
             Err(spent())
         });
         assert!(nowhere_to_go.unwrap_err().downcast_ref::<OutOfQuota>().is_some(), "and the limit is what is reported");
     }
 
     #[test]
-    fn a_hands_login_is_the_current_access_token_and_never_the_refresh_token() {
-        let home = std::env::temp_dir().join(format!("sous-chef-hand-login-{}", std::process::id()));
+    fn a_commiss_login_is_the_current_access_token_and_never_the_refresh_token() {
+        let home = std::env::temp_dir().join(format!("sous-chef-commis-login-{}", std::process::id()));
         let _ = fs::remove_dir_all(&home);
         fs::create_dir_all(home.join("profile")).unwrap();
         let hers = home.join(".credentials.json");
-        let hands = home.join("profile/.credentials.json");
+        let commis = home.join("profile/.credentials.json");
 
         fs::write(&hers, r#"{"claudeAiOauth":{"accessToken":"old","refreshToken":"secret","expiresAt":1}}"#).unwrap();
-        assert!(copy_login(&hers, &hands).unwrap(), "a first copy is a login the hand didn't have");
-        let copied: Value = read_json(&hands).unwrap();
+        assert!(copy_login(&hers, &commis).unwrap(), "a first copy is a login the commis didn't have");
+        let copied: Value = read_json(&commis).unwrap();
         assert_eq!(copied["claudeAiOauth"]["accessToken"], "old");
         assert!(copied["claudeAiOauth"].get("refreshToken").is_none(), "a sandbox can never rotate the real login");
-        assert!(!copy_login(&hers, &hands).unwrap(), "the same login again is no change");
+        assert!(!copy_login(&hers, &commis).unwrap(), "the same login again is no change");
 
         fs::write(&hers, r#"{"claudeAiOauth":{"accessToken":"new","refreshToken":"secret","expiresAt":2}}"#).unwrap();
-        assert!(copy_login(&hers, &hands).unwrap());
-        assert_eq!(read_json(&hands).unwrap()["claudeAiOauth"]["accessToken"], "new", "a round after a refresh runs on the token that works");
+        assert!(copy_login(&hers, &commis).unwrap());
+        assert_eq!(read_json(&commis).unwrap()["claudeAiOauth"]["accessToken"], "new", "a round after a refresh runs on the token that works");
         fs::remove_dir_all(home).unwrap();
     }
 
@@ -697,7 +697,7 @@ mod tests {
         let mut used_up = Command::new("sh");
         used_up.args(["-c", r#"echo '{"result":"You have hit your session limit · resets 8:20pm (Europe/Zagreb)","session_id":"s1","is_error":true}'"#]);
         let error = reply_of(&mut used_up, "", Duration::from_secs(10), None).unwrap_err();
-        assert!(error.context("the thread could not finish its turn").downcast_ref::<OutOfQuota>().is_some(), "and still is once it has been given context");
+        assert!(error.context("the chef de partie could not finish its turn").downcast_ref::<OutOfQuota>().is_some(), "and still is once it has been given context");
 
         assert!(says_the_subscription_is_used_up("Claude usage limit reached. Your limit will reset at 9pm."));
         assert!(says_the_subscription_is_used_up("You've hit your monthly spend limit. Switch to another model to continue."));
@@ -708,18 +708,18 @@ mod tests {
     #[test]
     fn what_a_turn_started_is_stopped_when_the_turn_is_over() {
         let started = Arc::new(Started::default());
-        let for_the_hand = started.clone();
-        let hand = thread::spawn(move || {
+        let for_the_commis = started.clone();
+        let commis = thread::spawn(move || {
             let mut working = Command::new("sh");
             working.args(["-c", "setsid sleep 27.1828 & wait"]);
-            reply_of(&mut working, "", Duration::from_secs(60), Some(&for_the_hand))
+            reply_of(&mut working, "", Duration::from_secs(60), Some(&for_the_commis))
         });
 
         thread::sleep(Duration::from_millis(300));
         assert!(still_running("27.1828"));
         started.stop_all();
-        assert!(hand.join().unwrap().is_err());
-        assert!(!still_running("27.1828"), "a hand outlived the turn it worked for");
+        assert!(commis.join().unwrap().is_err());
+        assert!(!still_running("27.1828"), "a commis outlived the turn it worked for");
 
         let mut late = Command::new("sh");
         late.args(["-c", "echo '{}'"]);
@@ -728,7 +728,7 @@ mod tests {
     }
 
     #[test]
-    fn a_hand_never_gets_the_refresh_token() {
+    fn a_commis_never_gets_the_refresh_token() {
         let credentials = json!({ "claudeAiOauth": {
             "accessToken": "access",
             "refreshToken": "refresh",

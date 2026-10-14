@@ -1,10 +1,10 @@
 //! How Basecamp is listened to, worked out against the real thing: as an
-//! agent of the person's own, or as one of their users.
+//! agent of the chef's own, or as one of their users.
 
 use serde_json::json;
 use std::collections::BTreeMap;
 
-use crate::config::{Call, Cursor, Latest, Pointers, Source, Trigger};
+use crate::config::{Call, Cursor, Latest, Pointers, Printer, Trigger};
 use crate::setup::{own_tool_config, words};
 
 const NOTIFICATIONS_NOTE: &str = "That is the notification, not the comment: its excerpt and link are from whatever first put this on your desk, and stay the same however many comments follow. Being woken by it again means someone said something new there that you haven't seen. List the comments with your Basecamp tools and read the newest before you decide anything, every time, and answer where it was said, with those tools. Write what you post as Basecamp's editor does: plain text with <br><br> between paragraphs, <strong>, <code> and <a> where they help, <pre> for a block of code or a command with its lines as they are, and <ul><li> for a list. Not <p>: Basecamp shows adjacent paragraphs with no space between them.";
@@ -16,15 +16,16 @@ const INBOX_NOTE: &str ="That is an item from your Basecamp inbox, not what they
 /// included — and gets an inbox of its own instead: every event that reached
 /// it, with why (mentioned, assigned, pinged, subscribed…). The inbox is
 /// read from a position, and an item is an event, not what someone wrote: it
-/// says who, in which project and on which recording, so the thread is told
-/// to read the recording before it acts. People are reported by id, which
-/// is why the trusted ones were looked up when they were named. There is no
-/// single call that answers, so the thread answers with Basecamp's own
+/// says who, in which project and on which recording, so the chef de partie is
+/// told to read the recording before it acts. People are reported by id,
+/// which is why the trusted ones were looked up when they were named. There
+/// is no single call that answers, so the chef de partie answers with
+/// Basecamp's own
 /// tools. `anyone` lets people who aren't trusted hand it work; Basecamp
 /// already decides who can reach an agent at all — the people in the
 /// projects it was added to.
-pub fn agent_source(profile: &str, watches: bool, anyone: bool) -> Source {
-    Source {
+pub fn agent_printer(profile: &str, watches: bool, anyone: bool) -> Printer {
+    Printer {
         server: "basecamp".to_string(),
         watch: Call { tool: "basecamp_eventfeed".to_string(), arguments: json!({ "action": "poll_inbox", "params": {} }) },
         every_seconds: if watches { 900 } else { 60 },
@@ -60,16 +61,16 @@ pub fn agent_source(profile: &str, watches: bool, anyone: bool) -> Source {
 /// notification is about — the to-do, the message — named by its
 /// subscription, because a comment, a mention and an assignment on one to-do
 /// are each a notification of their own; the body is an excerpt, so the
-/// thread gets the title, the excerpt and the link to read the rest; and
-/// there is no single call that answers, so the thread answers with
-/// Basecamp's own tools. The profile lives in the person's own command
+/// chef de partie gets the title, the excerpt and the link to read the rest;
+/// and there is no single call that answers, so the chef de partie answers
+/// with Basecamp's own tools. The profile lives in the chef's own command
 /// line config, where they logged it in, so nothing is pointed elsewhere.
-pub fn notifications_source(profile: Option<&str>, account: &str, watches: bool, anyone: bool) -> Source {
+pub fn notifications_printer(profile: Option<&str>, account: &str, watches: bool, anyone: bool) -> Printer {
     let mut through = Vec::new();
     if let Some(profile) = profile {
         through.extend(words(&["--profile", profile]));
     }
-    Source {
+    Printer {
         server: "basecamp".to_string(),
         watch: Call { tool: "basecamp_account".to_string(), arguments: json!({ "action": "get_my_notifications" }) },
         every_seconds: if watches { 900 } else { 60 },

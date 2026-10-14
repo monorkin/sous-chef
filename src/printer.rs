@@ -1,4 +1,4 @@
-//! Reading a source: turning what a server's watch tool answers into
+//! Reading a printer: turning what a server's watch tool answers into
 //! messages, remembering which ones were already seen, and answering back
 //! into the conversation a message came from.
 
@@ -9,7 +9,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::config::{Call, Cursor, Latest, Pointers, Source};
+use crate::config::{Call, Cursor, Latest, Pointers, Printer};
 use crate::conversation::{Conversation, Origin};
 use crate::fsutil;
 use crate::logs;
@@ -27,28 +27,28 @@ pub struct Message {
     pub text: String,
 }
 
-pub fn messages_in(source: &Source, answer: &str) -> Result<Vec<Message>> {
+pub fn messages_in(printer: &Printer, answer: &str) -> Result<Vec<Message>> {
     let answer: Value = serde_json::from_str(answer).context("the watch tool did not answer with JSON")?;
     let items = answer
-        .pointer(&source.items)
+        .pointer(&printer.items)
         .and_then(Value::as_array)
-        .with_context(|| format!("there is no list at {} in the watch tool's answer", source.items))?;
+        .with_context(|| format!("there is no list at {} in the watch tool's answer", printer.items))?;
 
     Ok(items
         .iter()
         .filter_map(|item| {
             Some(Message {
-                id: all_at(item, &source.id, ":")?,
-                conversation: text_at(item, &source.conversation)?,
-                sender: text_at(item, &source.sender)?,
-                sender_name: source.sender_name.as_deref().and_then(|it| text_at(item, it)),
-                text: all_at(item, &source.text, "\n\n")?,
+                id: all_at(item, &printer.id, ":")?,
+                conversation: text_at(item, &printer.conversation)?,
+                sender: text_at(item, &printer.sender)?,
+                sender_name: printer.sender_name.as_deref().and_then(|it| text_at(item, it)),
+                text: all_at(item, &printer.text, "\n\n")?,
             })
         })
         .collect())
 }
 
-/// What someone said, as the source reports it.
+/// What someone said, as the printer reports it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Spoken {
     pub sender: String,
@@ -58,14 +58,14 @@ pub struct Spoken {
 
 const MOST_PAGES: u64 = 30;
 
-/// Who spoke last where the message points, asked of the source page by
+/// Who spoke last where the message points, asked of the printer page by
 /// page until a page comes back empty. None when nothing was said there.
-pub fn newest_spoken(catalog: &Catalog, source: &Source, latest: &Latest, conversation: &str) -> Result<Option<Spoken>> {
+pub fn newest_spoken(catalog: &Catalog, printer: &Printer, latest: &Latest, conversation: &str) -> Result<Option<Spoken>> {
     let recording = last_id_in(conversation).context("the conversation's name carries no id to ask about")?;
     let mut newest = None;
     for page in 1..=MOST_PAGES {
         let arguments = filled_for(&latest.call.arguments, &recording, page);
-        let answer = catalog.call(&source.server, &latest.call.tool, &arguments)?;
+        let answer = catalog.call(&printer.server, &latest.call.tool, &arguments)?;
         match last_on_page(latest, &answer)? {
             Some(spoken) => newest = Some(spoken),
             None => break,
@@ -125,7 +125,7 @@ fn all_at(item: &Value, pointers: &Pointers, separator: &str) -> Option<String> 
 }
 
 /// Text and numbers as they are; anything with structure — an event's
-/// details, say — as the JSON it is, since a thread reads that fine.
+/// details, say — as the JSON it is, since a chef de partie reads that fine.
 fn text_at(item: &Value, pointer: &str) -> Option<String> {
     match item.pointer(pointer)? {
         Value::String(text) => Some(text.clone()),
@@ -135,19 +135,19 @@ fn text_at(item: &Value, pointer: &str) -> Option<String> {
     }
 }
 
-/// Where a source that is read from a position has got to.
+/// Where a printer that is read from a position has got to.
 pub struct Position {
     path: PathBuf,
     cursor: Cursor,
 }
 
 impl Position {
-    pub fn of(source_name: &str, source: &Source) -> Option<Position> {
-        let cursor = source.cursor.clone()?;
-        Some(Position { path: paths::source_dir(source_name).join("position"), cursor })
+    pub fn of(printer_name: &str, printer: &Printer) -> Option<Position> {
+        let cursor = printer.cursor.clone()?;
+        Some(Position { path: paths::printer_dir(printer_name).join("position"), cursor })
     }
 
-    /// The watch arguments, with the position put where the source wants it
+    /// The watch arguments, with the position put where the printer wants it
     /// when there is one. The folders on the way are made: `/params/position`
     /// works whether or not the arguments already have `params`.
     pub fn in_arguments(&self, arguments: &Value) -> Value {
@@ -197,12 +197,12 @@ pub struct Seen {
 }
 
 impl Seen {
-    pub fn load(source_name: &str) -> Seen {
-        Seen::load_from(paths::source_dir(source_name).join("seen.json"))
+    pub fn load(printer_name: &str) -> Seen {
+        Seen::load_from(paths::printer_dir(printer_name).join("seen.json"))
     }
 
     /// Whether this message is one to act on. Everything found on the very
-    /// first look at a source is only remembered: that is the backlog from
+    /// first look at a printer is only remembered: that is the backlog from
     /// before she was listening, not something anyone asked her.
     pub fn is_new(&mut self, id: &str) -> bool {
         self.ids.insert(id.to_string()) && !self.first_look
@@ -230,7 +230,7 @@ impl Seen {
             Ok(text) => match serde_json::from_str(&text) {
                 Ok(ids) => Seen { path, ids, first_look: false },
                 Err(error) => {
-                    logs::event("source.seen_unreadable", json!({ "file": path, "error": error.to_string() }));
+                    logs::event("printer.seen_unreadable", json!({ "file": path, "error": error.to_string() }));
                     Seen { path, ids: BTreeSet::new(), first_look: true }
                 }
             },
@@ -239,40 +239,40 @@ impl Seen {
     }
 }
 
-/// A conversation on a source. Saying something is the source's reply call
-/// with the conversation and the text filled in — when the source has one.
+/// A conversation on a printer. Saying something is the printer's reply call
+/// with the conversation and the text filled in — when the printer has one.
 /// Where answering isn't a single call, there is nothing generic to say it
-/// with, and the thread is told to use the server's own tools.
-pub struct Sourced {
+/// with, and the chef de partie is told to use the server's own tools.
+pub struct Printed {
     key: String,
-    source_name: String,
+    printer_name: String,
     conversation: String,
     server: String,
     reply: Option<Call>,
     catalog: Arc<Catalog>,
 }
 
-impl Sourced {
-    pub fn new(source_name: &str, source: &Source, conversation: &str, catalog: Arc<Catalog>) -> Sourced {
-        Sourced {
-            key: format!("{source_name}-{}", key_part(conversation)),
-            source_name: source_name.to_string(),
+impl Printed {
+    pub fn new(printer_name: &str, printer: &Printer, conversation: &str, catalog: Arc<Catalog>) -> Printed {
+        Printed {
+            key: format!("{printer_name}-{}", key_part(conversation)),
+            printer_name: printer_name.to_string(),
             conversation: conversation.to_string(),
-            server: source.server.clone(),
-            reply: source.reply.clone(),
+            server: printer.server.clone(),
+            reply: printer.reply.clone(),
             catalog,
         }
     }
 }
 
-impl Conversation for Sourced {
+impl Conversation for Printed {
     fn key(&self) -> &str {
         &self.key
     }
 
     fn origin(&self) -> Origin {
         Origin {
-            source: self.source_name.clone(),
+            printer: self.printer_name.clone(),
             conversation: self.conversation.clone(),
         }
     }
@@ -302,7 +302,7 @@ impl Conversation for Sourced {
 /// The conversation's id, made safe for a folder name and short enough for a
 /// socket path, which is capped at 108 bytes. A long id — Basecamp's signed
 /// ids run to hundreds of characters — keeps its start and gets a hash of the
-/// whole, so the same conversation always lands on the same thread.
+/// whole, so the same conversation always lands on the same chef de partie.
 fn key_part(conversation: &str) -> String {
     let safe: String = conversation
         .chars()
@@ -311,7 +311,7 @@ fn key_part(conversation: &str) -> String {
 
     // Only an id that went through unchanged can stand for itself: `room/a`
     // and `room-a` are different conversations that would otherwise share a
-    // thread, its history and its standing
+    // chef de partie, its history and its standing
     if safe.len() <= LONGEST_KEY_PART && safe == conversation {
         safe
     } else {
@@ -352,7 +352,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn source() -> Source {
+    fn printer() -> Printer {
         serde_json::from_value(json!({
             "server": "basecamp",
             "watch": { "tool": "my_notifications" },
@@ -374,7 +374,7 @@ mod tests {
         ]});
 
         assert_eq!(
-            messages_in(&source(), &answer.to_string()).unwrap(),
+            messages_in(&printer(), &answer.to_string()).unwrap(),
             [Message {
                 id: "11".to_string(),
                 conversation: "900".to_string(),
@@ -383,14 +383,14 @@ mod tests {
                 text: "Can you look at this?".to_string(),
             }]
         );
-        assert_eq!(source().every_seconds, 60);
-        assert!(messages_in(&source(), "not json").is_err());
-        assert!(messages_in(&source(), "{}").is_err());
+        assert_eq!(printer().every_seconds, 60);
+        assert!(messages_in(&printer(), "not json").is_err());
+        assert!(messages_in(&printer(), "{}").is_err());
     }
 
     #[test]
     fn a_basecamp_notification_is_new_again_when_its_thread_gets_another_comment() {
-        let basecamp: Source = serde_json::from_value(json!({
+        let basecamp: Printer = serde_json::from_value(json!({
             "server": "basecamp",
             "watch": { "tool": "basecamp_account", "arguments": { "action": "get_my_notifications" } },
             "trigger": { "command": "basecamp", "args": ["watch", "--json"] },
@@ -441,8 +441,8 @@ mod tests {
     }
 
     #[test]
-    fn a_source_read_from_a_position_carries_it_into_the_next_call() {
-        let inbox: Source = serde_json::from_value(json!({
+    fn a_printer_read_from_a_position_carries_it_into_the_next_call() {
+        let inbox: Printer = serde_json::from_value(json!({
             "server": "basecamp",
             "watch": { "tool": "basecamp_eventfeed", "arguments": { "action": "poll_inbox", "params": {} } },
             "items": "/items",
@@ -527,7 +527,7 @@ mod tests {
 
     #[test]
     fn replies_fill_in_the_conversation_and_the_text() {
-        let arguments = filled(&source().reply.unwrap().arguments, "900", "On it.");
+        let arguments = filled(&printer().reply.unwrap().arguments, "900", "On it.");
         assert_eq!(arguments, json!({ "recording_id": 900, "content": "On it." }));
 
         let nested = filled(&json!({ "to": ["thread/{conversation}"], "draft": false }), "abc", "hi");

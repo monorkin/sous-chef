@@ -1,24 +1,24 @@
 //! A conversation is wherever someone is talking to her: a todo's comments,
-//! an email thread, a terminal. A thread only knows how to say something back
-//! into it; where that lands is the conversation's business.
+//! an email thread, a terminal. A chef de partie only knows how to say
+//! something back into it; where that lands is the conversation's business.
 
 use anyhow::Result;
 
 pub const TERMINAL: &str = "terminal";
 
 /// Where a conversation lives: enough to find it again later, when a
-/// schedule comes due or another thread has something to tell it.
+/// schedule comes due or another chef de partie has something to tell it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Origin {
-    pub source: String,
+    pub printer: String,
     pub conversation: String,
 }
 
 /// Whose word a turn runs on. Trusted people can change how the agent
 /// behaves and have it do things on the machine it runs on. Everyone else —
-/// where a source lets them in at all — can hand it work and nothing more.
-/// It is decided from the config when a message arrives, never by the thread,
-/// and it changes what the thread is able to do, not only what it is told.
+/// where a printer lets them in at all — can hand it work and nothing more.
+/// It is decided from the config when a message arrives, never by the chef de
+/// partie, and it changes what the chef de partie is able to do, not only what it is told.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Standing {
     Trusted,
@@ -30,7 +30,7 @@ pub trait Conversation: Send + Sync {
     fn origin(&self) -> Origin;
     fn say(&self, text: &str) -> Result<()>;
 
-    /// Set when there is no one way to say something here, and the thread
+    /// Set when there is no one way to say something here, and the chef de partie
     /// has to answer with other tools: what it is told to do instead.
     fn answered_otherwise(&self) -> Option<String> {
         None
@@ -62,7 +62,7 @@ impl Conversation for Terminal {
 
     fn origin(&self) -> Origin {
         Origin {
-            source: TERMINAL.to_string(),
+            printer: TERMINAL.to_string(),
             conversation: self.name.clone(),
         }
     }

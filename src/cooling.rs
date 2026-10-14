@@ -1,17 +1,18 @@
-//! A quiet thread's session, compacted while Claude still has it cached.
+//! A quiet chef de partie's session, compacted while Claude still has it cached.
 //!
 //! Every turn resends the whole session. While Claude's prompt cache holds
 //! it that is cheap; once the cache has gone cold, the next wake writes all
-//! of it again — nine hundred thousand tokens for a thread that had talked
-//! for days. So a thread that has gone quiet is compacted shortly before
-//! its cache would expire, and what the next wake writes is the summary.
+//! of it again — nine hundred thousand tokens for a chef de partie that had
+//! talked for days. So a chef de partie that has gone quiet is compacted
+//! shortly before its cache would expire, and what the next wake writes is
+//! the summary.
 //!
 //! How long the cache lives isn't fixed. It is read from the session's own
 //! transcript: each call says which lifetime its cache write was for.
 //!
-//! Every thread still cached is compacted on the way out, since after a stop
-//! the cache is cold by the time she is back. Only what all of that missed
-//! is compacted cold, when the thread next wakes, before its turn — which
+//! Every chef de partie still cached is compacted on the way out, since after
+//! a stop the cache is cold by the time she is back. Only what all of that
+//! missed is compacted cold, when the chef de partie next wakes, before its turn — which
 //! pays to load the session just to throw it away, so it is the last resort.
 
 use anyhow::{Context, Result, bail};
@@ -38,7 +39,7 @@ const WORTH_COMPACTING: u64 = 50_000;
 const AT_ONCE_WHEN_SWITCHING: usize = 4;
 
 /// How many turns each conversation has had, so a compaction set up when a
-/// thread went quiet can tell that it has spoken since, and the session of
+/// chef de partie went quiet can tell that it has spoken since, and the session of
 /// each turn running now.
 #[derive(Default)]
 pub struct Cooling {
@@ -69,7 +70,7 @@ impl Cooling {
             if runtime.cooling.still_quiet(&conversation, quiet_since)
                 && let Err(error) = compact_before_it_goes_cold(&runtime, &conversation, &session, quiet_since)
             {
-                logs::event("thread.not_compacted", json!({ "conversation": conversation, "because": format!("{error:#}") }));
+                logs::event("chef_de_partie.not_compacted", json!({ "conversation": conversation, "because": format!("{error:#}") }));
             }
         });
     }
@@ -97,7 +98,7 @@ fn compact_before_it_goes_cold(runtime: &Arc<Runtime>, conversation: &str, sessi
         bail!("its cache lives {} min, too short to compact before it goes cold", last.cache_lives.as_secs() / 60)
     };
     logs::event(
-        "thread.compaction_set",
+        "chef_de_partie.compaction_set",
         json!({ "conversation": conversation, "at": compact_at.to_rfc3339(), "tokens": last.context, "cache_minutes": last.cache_lives.as_secs() / 60 }),
     );
     thread::sleep(wait);
@@ -109,8 +110,8 @@ fn compact_before_it_goes_cold(runtime: &Arc<Runtime>, conversation: &str, sessi
         Box::new(move || {
             if queued.cooling.still_quiet(&conversation, quiet_since) {
                 match compact(&conversation, &session, &last.model) {
-                    Ok(()) => logs::event("thread.compacted", json!({ "conversation": conversation, "tokens": last.context })),
-                    Err(error) => logs::event("thread.not_compacted", json!({ "conversation": conversation, "because": format!("{error:#}") })),
+                    Ok(()) => logs::event("chef_de_partie.compacted", json!({ "conversation": conversation, "tokens": last.context })),
+                    Err(error) => logs::event("chef_de_partie.not_compacted", json!({ "conversation": conversation, "because": format!("{error:#}") })),
                 }
             }
         }),
@@ -119,7 +120,7 @@ fn compact_before_it_goes_cold(runtime: &Arc<Runtime>, conversation: &str, sessi
 }
 
 /// The last line of defence, for what compacting while still cached missed
-/// — a compaction the account had no room for, a crash. A session that went
+/// — a compaction the supplier had no room for, a crash. A session that went
 /// cold while it was big is compacted before the turn that wakes it. That
 /// pays to load the whole session only to throw it away, which is why it
 /// comes last; it still beats the turn reading all of it on every call.
@@ -129,8 +130,8 @@ pub fn compact_if_cold(conversation: &str, session: &str) {
     };
     if last.context >= WORTH_COMPACTING && gone_cold(&last, Utc::now()) {
         match compact(conversation, session, &last.model) {
-            Ok(()) => logs::event("thread.compacted", json!({ "conversation": conversation, "tokens": last.context, "cold": true })),
-            Err(error) => logs::event("thread.not_compacted", json!({ "conversation": conversation, "because": format!("{error:#}") })),
+            Ok(()) => logs::event("chef_de_partie.compacted", json!({ "conversation": conversation, "tokens": last.context, "cold": true })),
+            Err(error) => logs::event("chef_de_partie.not_compacted", json!({ "conversation": conversation, "because": format!("{error:#}") })),
         }
     }
 }
@@ -144,8 +145,8 @@ pub fn compact_the_warm() {
         .into_iter()
         .map(|(conversation, session, last)| {
             thread::spawn(move || match compact(&conversation, &session, &last.model) {
-                Ok(()) => logs::event("thread.compacted", json!({ "conversation": conversation, "tokens": last.context })),
-                Err(error) => logs::event("thread.not_compacted", json!({ "conversation": conversation, "because": format!("{error:#}") })),
+                Ok(()) => logs::event("chef_de_partie.compacted", json!({ "conversation": conversation, "tokens": last.context })),
+                Err(error) => logs::event("chef_de_partie.not_compacted", json!({ "conversation": conversation, "because": format!("{error:#}") })),
             })
         })
         .collect();
@@ -154,11 +155,11 @@ pub fn compact_the_warm() {
     }
 }
 
-/// Every thread's session worth compacting, a few at a time: those still
-/// cached first, since they cost least, then the rest by how recently they
-/// were used. Once the account says it has nothing left, the rest stay as
-/// they are. How many were compacted.
-pub fn compact_every_thread() -> usize {
+/// Every chef de partie's session worth compacting, a few at a time: those
+/// still cached first, since they cost least, then the rest by how recently
+/// they were used. Once the supplier says it has nothing left, the rest stay
+/// as they are. How many were compacted.
+pub fn compact_every_chef_de_partie() -> usize {
     let mut sessions = worth_compacting();
     cheapest_first(&mut sessions, Utc::now());
 
@@ -173,7 +174,7 @@ pub fn compact_every_thread() -> usize {
                 .into_iter()
                 .map(|it| {
                     let (conversation, last) = it.join().unwrap()?;
-                    logs::event("thread.compacted", json!({ "conversation": conversation, "tokens": last.context }));
+                    logs::event("chef_de_partie.compacted", json!({ "conversation": conversation, "tokens": last.context }));
                     Ok(())
                 })
                 .collect()
@@ -181,7 +182,7 @@ pub fn compact_every_thread() -> usize {
         compacted += outcomes.iter().filter(|it| it.is_ok()).count();
         let spent = outcomes.iter().any(|it| it.as_ref().is_err_and(|error| claude::says_the_subscription_is_used_up(&format!("{error:#}"))));
         for error in outcomes.into_iter().filter_map(Result::err) {
-            logs::event("thread.not_compacted", json!({ "because": format!("{error:#}") }));
+            logs::event("chef_de_partie.not_compacted", json!({ "because": format!("{error:#}") }));
         }
         if spent {
             break;
@@ -190,9 +191,9 @@ pub fn compact_every_thread() -> usize {
     compacted
 }
 
-/// Each thread's session that is big enough to be worth compacting.
+/// Each chef de partie's session that is big enough to be worth compacting.
 fn worth_compacting() -> Vec<(String, String, LastCall)> {
-    fs::read_dir(paths::data_dir().join("threads"))
+    fs::read_dir(paths::data_dir().join("chefs_de_partie"))
         .map(|it| it.flatten().collect::<Vec<_>>())
         .unwrap_or_default()
         .into_iter()
@@ -215,13 +216,13 @@ fn gone_cold(last: &LastCall, now: DateTime<Utc>) -> bool {
 }
 
 fn last_call_of(conversation: &str, session: &str) -> Result<LastCall> {
-    let transcript = transcripts::of_thread(conversation).join(format!("{session}.jsonl"));
+    let transcript = transcripts::of_chef_de_partie(conversation).join(format!("{session}.jsonl"));
     last_call(&logs::end_of(&transcript, 512 * 1024)).context("its transcript has no call that wrote to the cache")
 }
 
 fn compact(conversation: &str, session: &str, model: &str) -> Result<()> {
     let output = Command::new(claude::binary()?)
-        .current_dir(paths::thread_dir(conversation))
+        .current_dir(paths::chef_de_partie_dir(conversation))
         .env("CLAUDE_CONFIG_DIR", paths::claude_config_home())
         .args(["-p", "--output-format", "json", "--strict-mcp-config", "--model", model, "--resume", session, "/compact"])
         .stdin(Stdio::null())
@@ -346,7 +347,7 @@ mod tests {
     }
 
     #[test]
-    fn a_compaction_set_up_when_a_thread_went_quiet_is_dropped_once_it_wakes_again() {
+    fn a_compaction_set_up_when_a_chef_de_partie_went_quiet_is_dropped_once_it_wakes_again() {
         let cooling = Cooling::default();
         let quiet_since = cooling.next_turn("card-1");
         assert!(cooling.still_quiet("card-1", quiet_since));
@@ -369,7 +370,7 @@ mod tests {
     }
 
     #[test]
-    fn before_a_switch_the_threads_still_cached_are_compacted_first_and_the_newest_first_among_each() {
+    fn before_a_switch_the_chefs_de_partie_still_cached_are_compacted_first_and_the_newest_first_among_each() {
         let at = |minutes_ago: i64| LastCall {
             at: "2026-10-06T12:00:00Z".parse::<DateTime<Utc>>().unwrap() - chrono::Duration::minutes(minutes_ago),
             model: "claude-fable-5-1".to_string(),

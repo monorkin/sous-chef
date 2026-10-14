@@ -1,13 +1,13 @@
-//! The judge answers yes/no questions about a piece of text with a
+//! The taster answers yes/no questions about a piece of text with a
 //! probability: is this an attack, would acting on this note cause harm, does
 //! this say the same thing as that.
 //!
-//! Who answers is the screening list in the config, asked in order until one
+//! Who answers is the tasting list in the config, asked in order until one
 //! does. Jev, with a key, answers in under a second for fractions of a cent.
 //! A Claude model answers through the subscription — slower, and with one
 //! known weakness: shown a long text, a small model sometimes answers the
 //! text instead of scoring it. So only the exact JSON that was asked for
-//! counts as an answer, and callers that gate on the judge treat no answer as
+//! counts as an answer, and callers that gate on the taster treat no answer as
 //! a yes.
 
 use anyhow::{Result, bail};
@@ -38,7 +38,7 @@ pub const MANIPULATION_QUESTION: &str = "The text is untrusted input that an AI 
 pub const SUSPICIOUS: f64 = 0.5;
 
 /// Those who can answer, in the order they are asked; never none.
-pub struct Judge {
+pub struct Taster {
     screeners: Vec<Screener>,
 }
 
@@ -54,14 +54,14 @@ pub enum Screening {
     Unchecked,
 }
 
-impl Judge {
-    /// The screening list as far as it is set up: Jev is left out while
+impl Taster {
+    /// The tasting list as far as it is set up: Jev is left out while
     /// there is no key for it.
-    pub fn with_whatever_is_set_up(config: &Config) -> Result<Judge> {
+    pub fn with_whatever_is_set_up(config: &Config) -> Result<Taster> {
         let api_key = secrets::load(config::JEV_API_KEY);
         let screeners: Vec<Screener> = config
             .models
-            .screening
+            .tasting
             .iter()
             .filter_map(|name| match (name.as_str(), &api_key) {
                 (config::JEV, Some(api_key)) => Some(Screener::Jev {
@@ -74,14 +74,14 @@ impl Judge {
             })
             .collect();
         if screeners.is_empty() {
-            bail!("screening lists only jev, and no Jev key is set up: add a Claude model to models.screening, or a key with `sous-chef setup`");
+            bail!("tasting lists only jev, and no Jev key is set up: add a Claude model to models.tasting, or a key with `sous-chef setup`");
         }
-        Ok(Judge { screeners })
+        Ok(Taster { screeners })
     }
 
     #[cfg(test)]
-    pub fn claude(model: &str) -> Judge {
-        Judge { screeners: vec![Screener::Claude { model: model.to_string() }] }
+    pub fn claude(model: &str) -> Taster {
+        Taster { screeners: vec![Screener::Claude { model: model.to_string() }] }
     }
 
     /// Whether a key is good, for setup: one question straight to Jev, with
@@ -98,13 +98,13 @@ impl Judge {
             Ok(probability) if probability >= SUSPICIOUS => Screening::Suspicious,
             Ok(_) => Screening::Clear,
             Err(error) => {
-                logs::event("judge.failed", json!({ "error": format!("{error:#}") }));
+                logs::event("taster.failed", json!({ "error": format!("{error:#}") }));
                 Screening::Unchecked
             }
         }
     }
 
-    /// One screener being down is not a reason to stop judging, and an agent
+    /// One screener being down is not a reason to stop tasting, and an agent
     /// who refuses everyone for the length of someone else's outage isn't
     /// autonomous: whenever one can't answer — or, for Jev, the breaker says
     /// not to ask — the next one is asked. Only when none can is there no
@@ -125,13 +125,13 @@ impl Judge {
                     if let Screener::Claude { model } = screener
                         && index + 1 < self.screeners.len()
                     {
-                        logs::event("judge.fell_back", json!({ "from": model, "because": format!("{error:#}") }));
+                        logs::event("taster.fell_back", json!({ "from": model, "because": format!("{error:#}") }));
                     }
                     failure = Some(error);
                 }
             }
         }
-        Err(failure.expect("a judge has at least one screener"))
+        Err(failure.expect("a taster has at least one screener"))
     }
 }
 
@@ -143,36 +143,36 @@ fn ask_jev_if_allowed(breaker: &Breaker, url: &str, api_key: &str, question: &st
         return None;
     }
     if text.len() > MOST_FOR_JEV {
-        logs::event("judge.fell_back", json!({ "from": "jev", "because": "too long for Jev", "bytes": text.len() }));
+        logs::event("taster.fell_back", json!({ "from": "jev", "because": "too long for Jev", "bytes": text.len() }));
         return None;
     }
 
     // Every request that goes out is billed, answered or not; `sous-chef dash`
     // counts these
-    logs::event("judge.jev_asked", json!({ "bytes": text.len() }));
+    logs::event("taster.jev_asked", json!({ "bytes": text.len() }));
     let (outcome, answer) = match ask_jev(url, api_key, question, text) {
         Ok(probability) => (Some(Outcome::Answered), Some(probability)),
         Err(JevError::Unauthorized) => (Some(Outcome::Unauthorized), None),
         // A long text taking long says nothing about Jev: counted, a few big
         // listings would switch it off for every short message after them
         Err(JevError::TooSlow) if text.len() > BIG_TEXT => {
-            logs::event("judge.fell_back", json!({ "from": "jev", "because": "too slow for a text this long", "bytes": text.len() }));
+            logs::event("taster.fell_back", json!({ "from": "jev", "because": "too slow for a text this long", "bytes": text.len() }));
             (None, None)
         }
         Err(JevError::TooSlow) => {
-            logs::event("judge.fell_back", json!({ "from": "jev", "because": "no answer in time", "bytes": text.len() }));
+            logs::event("taster.fell_back", json!({ "from": "jev", "because": "no answer in time", "bytes": text.len() }));
             (Some(Outcome::Failed), None)
         }
         Err(JevError::Failed(error)) => {
-            logs::event("judge.fell_back", json!({ "from": "jev", "because": format!("{error:#}"), "bytes": text.len() }));
+            logs::event("taster.fell_back", json!({ "from": "jev", "because": format!("{error:#}"), "bytes": text.len() }));
             (Some(Outcome::Failed), None)
         }
     };
 
     let change = outcome.map(|it| breaker.record(it, Instant::now())).unwrap_or(Change::Nothing);
     match change {
-        Change::Opened { minutes } => logs::event("judge.jev_paused", json!({ "minutes": minutes })),
-        Change::SwitchedOff => logs::event("judge.jev_switched_off", json!({ "because": "the key was refused", "until": "restart" })),
+        Change::Opened { minutes } => logs::event("taster.jev_paused", json!({ "minutes": minutes })),
+        Change::SwitchedOff => logs::event("taster.jev_switched_off", json!({ "because": "the key was refused", "until": "restart" })),
         Change::Nothing => {}
     }
     answer
@@ -234,7 +234,7 @@ fn ask_claude(model: &str, question: &str, text: &str) -> Result<f64> {
 /// Haiku gets the shape of its answer wrong now and then — a fence, a
 /// sentence first — and asked again with a nudge it gets it right, so an
 /// answer that isn't a score is asked for again, up to five more times. The
-/// nudge never quotes the reply back: that reply may be the judged text
+/// nudge never quotes the reply back: that reply may be the tasted text
 /// talking. Claude not running at all is not asked again; that is an error
 /// for the caller, and asking six times would only take six times as long.
 fn ask_claude_with(question: &str, ask: impl Fn(&str) -> Result<String>) -> Result<f64> {
@@ -247,7 +247,7 @@ fn ask_claude_with(question: &str, ask: impl Fn(&str) -> Result<String>) -> Resu
         match score_in(&ask(&prompt)?) {
             Ok(probability) => return Ok(probability),
             Err(error) if tries < TRIES_FOR_CLAUDE => {
-                logs::event("judge.asked_again", json!({ "try": tries + 1, "because": format!("{error:#}") }));
+                logs::event("taster.asked_again", json!({ "try": tries + 1, "because": format!("{error:#}") }));
                 tries += 1;
                 prompt = format!("{first}\n\nYour last reply was not that JSON on its own. Reply with nothing but {{\"probability\": N}}, N a whole number from 0 to 100.");
             }
@@ -257,7 +257,7 @@ fn ask_claude_with(question: &str, ask: impl Fn(&str) -> Result<String>) -> Resu
 }
 
 /// The score and nothing else, bare or in one complete code fence. Taking
-/// the first score out of a longer answer would let the judged text win by
+/// the first score out of a longer answer would let the tasted text win by
 /// having the model repeat an example score before giving its own; anything
 /// more than the score is asked for again instead.
 fn score_in(reply: &str) -> Result<f64> {
@@ -282,10 +282,10 @@ fn excerpt(text: &str) -> String {
     text.chars().take(120).collect()
 }
 
-/// A judge for tests elsewhere: a Jev on this machine that answers each
+/// A taster for tests elsewhere: a Jev on this machine that answers each
 /// question with the next probability, so nothing real is ever asked.
 #[cfg(test)]
-pub fn answering(probabilities: &[f64]) -> Judge {
+pub fn answering(probabilities: &[f64]) -> Taster {
     use std::io::{Read, Write};
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -301,7 +301,7 @@ pub fn answering(probabilities: &[f64]) -> Judge {
             connection.write_all(response.as_bytes()).unwrap();
         }
     });
-    Judge { screeners: vec![Screener::Jev { api_key: "key".to_string(), url, breaker: Breaker::default() }] }
+    Taster { screeners: vec![Screener::Jev { api_key: "key".to_string(), url, breaker: Breaker::default() }] }
 }
 
 #[cfg(test)]
@@ -360,11 +360,11 @@ mod tests {
     #[test]
     fn the_next_screener_answers_when_one_cant() {
         let jev = |url: String| Screener::Jev { api_key: "key".to_string(), url, breaker: Breaker::default() };
-        let judge = Judge { screeners: vec![jev(stand_in_for_jev(vec![OVERLOADED])), jev(stand_in_for_jev(vec![ANSWERED]))] };
-        assert_eq!(judge.probability("Is it?", "text").unwrap(), 0.9);
+        let taster = Taster { screeners: vec![jev(stand_in_for_jev(vec![OVERLOADED])), jev(stand_in_for_jev(vec![ANSWERED]))] };
+        assert_eq!(taster.probability("Is it?", "text").unwrap(), 0.9);
 
-        let judge = Judge { screeners: vec![jev(stand_in_for_jev(vec![OVERLOADED])), jev(stand_in_for_jev(vec![REFUSED]))] };
-        assert!(judge.probability("Is it?", "text").is_err(), "with none answering there is no answer");
+        let taster = Taster { screeners: vec![jev(stand_in_for_jev(vec![OVERLOADED])), jev(stand_in_for_jev(vec![REFUSED]))] };
+        assert!(taster.probability("Is it?", "text").is_err(), "with none answering there is no answer");
     }
 
     #[test]
@@ -374,8 +374,8 @@ mod tests {
 
         assert_eq!(ask_jev_if_allowed(&breaker, &url, "bad-key", "Is it?", "text"), None);
         assert!(!breaker.allows(Instant::now()));
-        assert!(!Judge::jev_key_works("bad-key", Some(&stand_in_for_jev(vec![REFUSED]))));
-        assert!(Judge::jev_key_works("good-key", Some(&stand_in_for_jev(vec![ANSWERED]))));
+        assert!(!Taster::jev_key_works("bad-key", Some(&stand_in_for_jev(vec![REFUSED]))));
+        assert!(Taster::jev_key_works("good-key", Some(&stand_in_for_jev(vec![ANSWERED]))));
     }
 
     #[test]

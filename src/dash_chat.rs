@@ -1,6 +1,6 @@
-//! The dashboard's chat: a line to tell a thread something the way
-//! `sous-chef tell` does, with what is going on in that thread at the head and the end
-//! of its transcript below.
+//! The dashboard's chat: a line to tell a chef de partie something the way
+//! `sous-chef tell` does, with what is going on in that chef de partie at the
+//! head and the end of its transcript below.
 
 use ratatui::Frame;
 use ratatui::crossterm::event::KeyCode;
@@ -10,7 +10,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
 
 use crate::dash::Effect;
-use crate::dash_data::ThreadNow;
+use crate::dash_data::ChefDePartieNow;
 use crate::lifecycle;
 use crate::transcripts;
 
@@ -18,7 +18,7 @@ const REPLIES_KEPT: usize = 300;
 
 #[derive(Default)]
 pub struct Chat {
-    pub thread: Option<String>,
+    pub chef_de_partie: Option<String>,
     draft: String,
     said: String,
     /// What was sent from here, to tell apart in the transcript.
@@ -30,14 +30,14 @@ pub struct Chat {
 
 impl Chat {
     pub fn read_replies(&mut self) {
-        self.replies = match &self.thread {
-            Some(thread) => transcripts::tail_of_thread(thread, REPLIES_KEPT),
+        self.replies = match &self.chef_de_partie {
+            Some(chef_de_partie) => transcripts::tail_of_chef_de_partie(chef_de_partie, REPLIES_KEPT),
             None => Vec::new(),
         };
     }
 
-    pub fn tell(&mut self, thread: &str, message: &str) {
-        match lifecycle::told(thread, message) {
+    pub fn tell(&mut self, chef_de_partie: &str, message: &str) {
+        match lifecycle::told(chef_de_partie, message) {
             Ok(told) => {
                 self.said = told;
                 self.sent.push(message.to_string());
@@ -49,21 +49,21 @@ impl Chat {
 
     /// Everything typed here is the message, digits and `q` included; Esc
     /// leaves.
-    pub fn press(&mut self, code: KeyCode, threads: &[String]) -> Effect {
+    pub fn press(&mut self, code: KeyCode, chefs_de_partie: &[String]) -> Effect {
         match code {
             KeyCode::Char(typed) => self.draft.push(typed),
             KeyCode::Backspace => {
                 self.draft.pop();
             }
             KeyCode::Enter => {
-                if let Some(thread) = &self.thread
+                if let Some(chef_de_partie) = &self.chef_de_partie
                     && !self.draft.trim().is_empty()
                 {
-                    return Effect::Tell { thread: thread.clone(), message: self.draft.trim().to_string() };
+                    return Effect::Tell { chef_de_partie: chef_de_partie.clone(), message: self.draft.trim().to_string() };
                 }
             }
-            KeyCode::Up => return self.pick_thread(threads, -1),
-            KeyCode::Down => return self.pick_thread(threads, 1),
+            KeyCode::Up => return self.pick_chef_de_partie(chefs_de_partie, -1),
+            KeyCode::Down => return self.pick_chef_de_partie(chefs_de_partie, 1),
             KeyCode::PageUp => self.back = self.back.saturating_add(10),
             KeyCode::PageDown => self.back = self.back.saturating_sub(10),
             KeyCode::Esc => return Effect::Leave,
@@ -72,23 +72,23 @@ impl Chat {
         Effect::Nothing
     }
 
-    fn pick_thread(&mut self, threads: &[String], step: isize) -> Effect {
-        if threads.is_empty() {
+    fn pick_chef_de_partie(&mut self, chefs_de_partie: &[String], step: isize) -> Effect {
+        if chefs_de_partie.is_empty() {
             return Effect::Nothing;
         }
 
-        let at = self.thread.as_ref().and_then(|it| threads.iter().position(|thread| thread == it));
+        let at = self.chef_de_partie.as_ref().and_then(|it| chefs_de_partie.iter().position(|chef_de_partie| chef_de_partie == it));
         let next = match at {
-            Some(at) => (at as isize + step).rem_euclid(threads.len() as isize) as usize,
+            Some(at) => (at as isize + step).rem_euclid(chefs_de_partie.len() as isize) as usize,
             None => 0,
         };
-        self.thread = Some(threads[next].clone());
+        self.chef_de_partie = Some(chefs_de_partie[next].clone());
         self.back = 0;
-        Effect::OtherThread
+        Effect::OtherChefDePartie
     }
 
-    pub fn draw(&self, frame: &mut Frame, area: Rect, about: Option<&ThreadNow>) {
-        let head = head_of(self.thread.as_deref(), about);
+    pub fn draw(&self, frame: &mut Frame, area: Rect, about: Option<&ChefDePartieNow>) {
+        let head = head_of(self.chef_de_partie.as_deref(), about);
         let [head_area, replies, said, draft] =
             Layout::vertical([Constraint::Length(head.len() as u16 + 2), Constraint::Min(1), Constraint::Length(1), Constraint::Length(1)]).areas(area);
         frame.render_widget(Paragraph::new(head).block(Block::bordered().border_style(Style::new().fg(Color::DarkGray))), head_area);
@@ -113,12 +113,12 @@ impl Chat {
     }
 }
 
-/// Who it is, what it's doing, whether a turn is running, and its hands.
-fn head_of(thread: Option<&str>, about: Option<&ThreadNow>) -> Vec<Line<'static>> {
-    let Some(thread) = thread else {
-        return vec![Line::from("Nobody to talk to: no thread is going on or claimed.")];
+/// Who it is, what it's doing, whether a turn is running, and its commis.
+fn head_of(chef_de_partie: Option<&str>, about: Option<&ChefDePartieNow>) -> Vec<Line<'static>> {
+    let Some(chef_de_partie) = chef_de_partie else {
+        return vec![Line::from("Nobody to talk to: no chef de partie is going on or claimed.")];
     };
-    let mut lines = vec![Line::styled(format!("To {thread}"), Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD))];
+    let mut lines = vec![Line::styled(format!("To {chef_de_partie}"), Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD))];
     let Some(about) = about else {
         lines.push(Line::styled("Not going on or claimed right now.", Style::new().add_modifier(Modifier::DIM)));
         return lines;
@@ -135,9 +135,9 @@ fn head_of(thread: Option<&str>, about: Option<&ThreadNow>) -> Vec<Line<'static>
         many => turn.push(Span::styled(format!(" · {many} messages waiting"), Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
     }
     lines.push(Line::from(turn));
-    for [hand, worktree, taken] in &about.hands {
+    for [commis, worktree, taken] in &about.commis {
         lines.push(Line::from(vec![
-            Span::styled(format!("Hand {hand}"), Style::new().add_modifier(Modifier::DIM)),
+            Span::styled(format!("Commis {commis}"), Style::new().add_modifier(Modifier::DIM)),
             Span::raw(" in "),
             Span::styled(worktree.clone(), Style::new().fg(Color::Magenta)),
             Span::raw(format!(", {taken}")),
@@ -146,18 +146,18 @@ fn head_of(thread: Option<&str>, about: Option<&ThreadNow>) -> Vec<Line<'static>
     lines
 }
 
-/// Who a line of a thread's transcript, as `sous-chef transcript` renders it,
-/// is from.
+/// Who a line of a chef de partie's transcript, as `sous-chef transcript`
+/// renders it, is from.
 #[derive(Debug, PartialEq)]
 enum Said {
     /// Sent from this dashboard.
     ByYou,
-    /// Anything else said to the thread: a message, a mail, a prompt.
+    /// Anything else said to the chef de partie: a message, a mail, a prompt.
     ToIt,
     Call,
     Answer,
     Failure,
-    /// The thread's own words.
+    /// The chef de partie's own words.
     ByIt,
 }
 
@@ -214,50 +214,50 @@ pub fn window_of(lines: &[String], height: usize, back: usize) -> &[String] {
 mod tests {
     use super::*;
 
-    fn threads(names: &[&str]) -> Vec<String> {
+    fn chefs_de_partie(names: &[&str]) -> Vec<String> {
         names.iter().map(|it| it.to_string()).collect()
     }
 
     #[test]
-    fn a_message_goes_to_the_picked_thread_once_there_is_something_to_say() {
-        let threads = threads(&["basecamp-card-1", "basecamp-card-2"]);
-        let mut chat = Chat { thread: Some("basecamp-card-1".to_string()), ..Chat::default() };
+    fn a_message_goes_to_the_picked_chef_de_partie_once_there_is_something_to_say() {
+        let chefs_de_partie = chefs_de_partie(&["basecamp-card-1", "basecamp-card-2"]);
+        let mut chat = Chat { chef_de_partie: Some("basecamp-card-1".to_string()), ..Chat::default() };
 
-        assert_eq!(chat.press(KeyCode::Enter, &threads), Effect::Nothing, "nothing typed, nothing sent");
-        assert_eq!(chat.press(KeyCode::Up, &threads), Effect::OtherThread);
-        assert_eq!(chat.thread.as_deref(), Some("basecamp-card-2"), "up from the first comes round to the last");
+        assert_eq!(chat.press(KeyCode::Enter, &chefs_de_partie), Effect::Nothing, "nothing typed, nothing sent");
+        assert_eq!(chat.press(KeyCode::Up, &chefs_de_partie), Effect::OtherChefDePartie);
+        assert_eq!(chat.chef_de_partie.as_deref(), Some("basecamp-card-2"), "up from the first comes round to the last");
 
         for typed in "Push it 2 q ".chars() {
-            chat.press(KeyCode::Char(typed), &threads);
+            chat.press(KeyCode::Char(typed), &chefs_de_partie);
         }
-        chat.press(KeyCode::Backspace, &threads);
-        assert_eq!(chat.press(KeyCode::Enter, &threads), Effect::Tell { thread: "basecamp-card-2".to_string(), message: "Push it 2 q".to_string() }, "digits and q are part of the message");
+        chat.press(KeyCode::Backspace, &chefs_de_partie);
+        assert_eq!(chat.press(KeyCode::Enter, &chefs_de_partie), Effect::Tell { chef_de_partie: "basecamp-card-2".to_string(), message: "Push it 2 q".to_string() }, "digits and q are part of the message");
 
-        chat.press(KeyCode::PageUp, &threads);
+        chat.press(KeyCode::PageUp, &chefs_de_partie);
         assert_eq!(chat.back, 10);
-        assert_eq!(chat.press(KeyCode::Down, &threads), Effect::OtherThread);
-        assert_eq!(chat.back, 0, "another thread is read from its newest line");
-        assert_eq!(chat.press(KeyCode::Esc, &threads), Effect::Leave);
+        assert_eq!(chat.press(KeyCode::Down, &chefs_de_partie), Effect::OtherChefDePartie);
+        assert_eq!(chat.back, 0, "another chef de partie is read from its newest line");
+        assert_eq!(chat.press(KeyCode::Esc, &chefs_de_partie), Effect::Leave);
     }
 
     #[test]
-    fn the_head_says_what_the_thread_is_doing_and_what_its_hands_are() {
+    fn the_head_says_what_the_chef_de_partie_is_doing_and_what_its_commis_are() {
         let text = |lines: Vec<Line>| lines.iter().map(|it| it.to_string()).collect::<Vec<_>>();
-        let about = ThreadNow {
+        let about = ChefDePartieNow {
             title: "Fixing the login".to_string(),
             turn_for: Some("14m".to_string()),
             waiting: "3".to_string(),
-            hands: vec![["h18d9", "login-fix", "13m"].map(String::from)],
+            commis: vec![["h18d9", "login-fix", "13m"].map(String::from)],
         };
         assert_eq!(
             text(head_of(Some("basecamp-card-1"), Some(&about))),
-            ["To basecamp-card-1", "Fixing the login", "Turn running for 14m · 3 messages waiting", "Hand h18d9 in login-fix, 13m"]
+            ["To basecamp-card-1", "Fixing the login", "Turn running for 14m · 3 messages waiting", "Commis h18d9 in login-fix, 13m"]
         );
 
-        let resting = ThreadNow { title: "Waiting on review".to_string(), ..ThreadNow::default() };
+        let resting = ChefDePartieNow { title: "Waiting on review".to_string(), ..ChefDePartieNow::default() };
         assert_eq!(text(head_of(Some("basecamp-card-2"), Some(&resting)))[2], "Between turns");
         assert_eq!(text(head_of(Some("basecamp-card-9"), None))[1], "Not going on or claimed right now.");
-        assert_eq!(text(head_of(None, None)), ["Nobody to talk to: no thread is going on or claimed."]);
+        assert_eq!(text(head_of(None, None)), ["Nobody to talk to: no chef de partie is going on or claimed."]);
     }
 
     #[test]

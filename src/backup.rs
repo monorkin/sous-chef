@@ -2,14 +2,14 @@
 //! sous-chef what it is, in one zip.
 //!
 //! What goes in: the config with her style and CLAUDE.md, her tokens and the
-//! Claude accounts she rotates between, the Claude Code folder she works
+//! Claude suppliers she rotates between, the Claude Code folder she works
 //! from with its settings and skills, the config of the tools she has her
 //! own profile in and the logins those tools keep in the keyring, the
-//! database of schedules and the work board, which messages each source has
-//! already seen, the log, every thread's session and the Claude transcript
-//! behind it — without those a restored thread would have forgotten its
-//! conversation — an export of what she has learned, and whether she ran as
-//! a service. The projects she works on are not hers, and stay out.
+//! database of schedules and the work board, which messages each printer has
+//! already seen, the log, every chef de partie's session and the Claude
+//! transcript behind it — without those a restored chef de partie would have
+//! forgotten its conversation — an export of her recipe book, and whether she
+//! ran as a service. The projects she works on are not hers, and stay out.
 //!
 //! A backup can be taken while she runs. The database is the only file that
 //! could be caught mid-write, and it is snapshotted through SQLite rather
@@ -18,7 +18,7 @@
 //!
 //! The zip holds tokens in the clear unless told not to, so it is written
 //! readable only by its owner. Inside it, transcripts are filed under the
-//! thread's name, not under the folder Claude Code derives from an absolute
+//! chef de partie's name, not under the folder Claude Code derives from an absolute
 //! path, so a backup restores under a different home directory.
 
 use anyhow::{Context, Result, bail};
@@ -43,12 +43,13 @@ use crate::transcripts;
 
 const MANIFEST: &str = "manifest.json";
 const SECRETS: &str = "secrets.json";
-const MEMORY: &str = "memory.zip";
+const RECIPES: &str = "recipes.zip";
+const OLD_MEMORY: &str = "memory.zip";
 const TOOL_LOGINS: &str = "tool-logins.json";
 const CONFIG_FILES: [&str; 3] = ["config.json", "style.md", "CLAUDE.md"];
 const SECRET_NAMES: [&str; 1] = [config::JEV_API_KEY];
 /// What Claude Code makes for itself in her folder as it runs. Transcripts
-/// are under `projects`, and go in by thread instead.
+/// are under `projects`, and go in by chef de partie instead.
 const CLAUDE_CODES_OWN: [&str; 14] = [
     "projects",
     "cache",
@@ -86,7 +87,7 @@ pub fn backup(to: Option<PathBuf>, without_secrets: bool) -> Result<()> {
     archive.add_database()?;
     archive.add_data_files()?;
     archive.add_transcripts()?;
-    archive.add_memory()?;
+    archive.add_recipes()?;
     archive.add(MANIFEST, manifest(without_secrets).to_string().as_bytes())?;
     let entries = archive.entries;
     archive.zip.finish()?;
@@ -122,7 +123,7 @@ impl Archive {
     }
 
     /// The Claude Code folder she works from: her settings, the skills that
-    /// describe her tools, and — with her tokens — the account it is logged
+    /// describe her tools, and — with her tokens — the supplier it is logged
     /// into. Not what Claude Code makes for itself as it runs.
     fn add_claude_profile(&mut self, with_login: bool) -> Result<()> {
         let profile = paths::claude_config_home();
@@ -138,13 +139,13 @@ impl Archive {
         Ok(())
     }
 
-    /// The Claude accounts she rotates between, the config of the tools she
+    /// The Claude suppliers she rotates between, the config of the tools she
     /// has a profile of her own in, and the logins those tools keep in the
     /// keyring. All of them are logins — a tool without a keyring keeps its
     /// credentials right there in a file — so they go wherever her tokens go
     /// and stay out when those do.
     fn add_logins(&mut self) -> Result<()> {
-        self.add_tree(&paths::accounts_dir(), "config/ax")?;
+        self.add_tree(&paths::suppliers_dir(), "config/ax")?;
         self.add_tree(&paths::tools_config_home(), "config/tools")?;
         let tool_logins = secrets::tool_logins();
         if !tool_logins.is_empty() {
@@ -180,27 +181,27 @@ impl Archive {
 
     fn add_data_files(&mut self) -> Result<()> {
         self.add_file_if_there(&paths::log_file(), "data/log.jsonl")?;
-        self.add_tree(&paths::data_dir().join("threads"), "data/threads")?;
-        self.add_tree(&paths::hands_dir(), "data/hands")?;
-        self.add_tree(&paths::data_dir().join("sources"), "data/sources")
+        self.add_tree(&paths::data_dir().join("chefs_de_partie"), "data/chefs_de_partie")?;
+        self.add_tree(&paths::commis_dir(), "data/commis")?;
+        self.add_tree(&paths::data_dir().join("printers"), "data/printers")
     }
 
     fn add_transcripts(&mut self) -> Result<()> {
-        for thread in names_in(&paths::data_dir().join("threads")) {
-            let transcripts = transcripts::of_thread(&thread);
-            self.add_tree(&transcripts, &format!("transcripts/{thread}"))?;
+        for chef_de_partie in names_in(&paths::data_dir().join("chefs_de_partie")) {
+            let transcripts = transcripts::of_chef_de_partie(&chef_de_partie);
+            self.add_tree(&transcripts, &format!("transcripts/{chef_de_partie}"))?;
         }
         Ok(())
     }
 
     /// katami writes its own export, which restore hands back to it. A store
     /// with nothing in it has nothing to export, and that is not an error.
-    fn add_memory(&mut self) -> Result<()> {
-        let exported = staging("memory.zip")?;
+    fn add_recipes(&mut self) -> Result<()> {
+        let exported = staging("recipes.zip")?;
         let _ = fs::remove_file(&exported);
         match katami::transfer::export("all", Some(exported.clone())) {
-            Ok(_) => self.add_file_if_there(&exported, MEMORY)?,
-            Err(error) => eprintln!("Her memory was left out: {error:#}. That is expected when she has none yet."),
+            Ok(_) => self.add_file_if_there(&exported, RECIPES)?,
+            Err(error) => eprintln!("Her recipe book was left out: {error:#}. That is expected when she has none yet."),
         }
         let _ = fs::remove_file(&exported);
         Ok(())
@@ -295,8 +296,8 @@ pub fn restore(path: &Path, force: bool) -> Result<()> {
                 }
             }
             restored += 1;
-        } else if name == MEMORY {
-            restore_memory(&contents)?;
+        } else if name == RECIPES || name == OLD_MEMORY {
+            restore_recipes(&contents)?;
             restored += 1;
         } else if let Some(destination) = destination_of(&name)? {
             put(&destination, &contents)?;
@@ -333,14 +334,30 @@ fn destination_of(name: &str) -> Result<Option<PathBuf>> {
         Some("config") => Some(paths::config_dir().join(parts.collect::<PathBuf>())),
         // A backup made while sous-chef was still called anna
         Some("data") if name == "data/anna.db" => Some(paths::database()),
-        Some("data") => Some(paths::data_dir().join(parts.collect::<PathBuf>())),
+        Some("data") => Some(paths::data_dir().join(current_data_path(parts))),
         Some("claude") => Some(paths::claude_config_home().join(parts.collect::<PathBuf>())),
         Some("transcripts") => parts
             .next()
-            .map(|thread| transcripts::of_thread(&thread).join(parts.collect::<PathBuf>())),
+            .map(|chef_de_partie| transcripts::of_chef_de_partie(&chef_de_partie).join(parts.collect::<PathBuf>())),
         _ => None,
     };
     Ok(destination)
+}
+
+/// A backup made before the kitchen names filed these folders as `threads`,
+/// `hands` and `sources`.
+fn current_data_path(mut parts: impl Iterator<Item = String>) -> PathBuf {
+    let mut path = PathBuf::new();
+    if let Some(folder) = parts.next() {
+        match folder.as_str() {
+            "threads" => path.push("chefs_de_partie"),
+            "hands" => path.push("commis"),
+            "sources" => path.push("printers"),
+            _ => path.push(folder),
+        }
+    }
+    path.extend(parts);
+    path
 }
 
 /// The names in a backup are checked, but a name is only where a write
@@ -360,8 +377,8 @@ fn is_a_root_of_hers(place: &Path) -> bool {
 }
 
 /// `--force` replaces the sous-chef that is here, so what the backup may not
-/// hold must not be left over from her: the old personality, threads the
-/// backup never had, what her sources had already seen. An old write-ahead
+/// hold must not be left over from her: the old personality, chefs de partie
+/// the backup never had, what her printers had already seen. An old write-ahead
 /// log would be replayed over the restored database.
 fn make_room_for_the_backup() -> Result<()> {
     for name in CONFIG_FILES {
@@ -370,7 +387,7 @@ fn make_room_for_the_backup() -> Result<()> {
     for suffix in ["", "-wal", "-shm"] {
         remove_if_there(&paths::data_dir().join(format!("{}{suffix}", paths::DATABASE)))?;
     }
-    for folder in ["threads", "sources"] {
+    for folder in ["chefs_de_partie", "printers"] {
         match fs::remove_dir_all(paths::data_dir().join(folder)) {
             Err(error) if error.kind() != ErrorKind::NotFound => return Err(error.into()),
             _ => {}
@@ -391,11 +408,11 @@ fn put(destination: &Path, contents: &[u8]) -> Result<()> {
     fsutil::write_private_bytes(destination, contents)
 }
 
-/// Memories that are already here win over the backup's: they are the newer
+/// Recipes that are already here win over the backup's: they are the newer
 /// ones, and katami's store is shared with every other session on the
 /// machine.
-fn restore_memory(exported: &[u8]) -> Result<()> {
-    let path = staging("memory.zip")?;
+fn restore_recipes(exported: &[u8]) -> Result<()> {
+    let path = staging("recipes.zip")?;
     fsutil::write_private_bytes(&path, exported)?;
     let imported = katami::transfer::import(&path, katami::transfer::OnCollision::Skip, &paths::claude_config_home());
     let _ = fs::remove_file(&path);
@@ -404,7 +421,7 @@ fn restore_memory(exported: &[u8]) -> Result<()> {
 
 /// Where a file waits on its way into or out of a zip: her runtime folder,
 /// which only she can look into. The system's temp folder is everyone's,
-/// and a database or her memory would sit there readable under a name
+/// and a database or her recipe book would sit there readable under a name
 /// anyone could guess.
 fn staging(name: &str) -> Result<PathBuf> {
     let directory = paths::runtime_dir().join("staging");
@@ -431,12 +448,19 @@ mod tests {
     fn entries_land_where_they_belong_and_nowhere_else() {
         assert_eq!(destination_of("config/style.md").unwrap(), Some(paths::config_dir().join("style.md")));
         assert_eq!(
-            destination_of("data/threads/basecamp-card-1/session").unwrap(),
-            Some(paths::data_dir().join("threads/basecamp-card-1/session"))
+            destination_of("data/chefs_de_partie/basecamp-card-1/session").unwrap(),
+            Some(paths::data_dir().join("chefs_de_partie/basecamp-card-1/session"))
         );
         assert_eq!(
+            destination_of("data/threads/basecamp-card-1/session").unwrap(),
+            Some(paths::data_dir().join("chefs_de_partie/basecamp-card-1/session")),
+            "a backup from before the kitchen names restores into the new folders"
+        );
+        assert_eq!(destination_of("data/hands/h1/note").unwrap(), Some(paths::data_dir().join("commis/h1/note")));
+        assert_eq!(destination_of("data/sources/basecamp/seen").unwrap(), Some(paths::data_dir().join("printers/basecamp/seen")));
+        assert_eq!(
             destination_of("transcripts/terminal-main/abc.jsonl").unwrap(),
-            Some(transcripts::of_thread("terminal-main").join("abc.jsonl"))
+            Some(transcripts::of_chef_de_partie("terminal-main").join("abc.jsonl"))
         );
         assert_eq!(destination_of("claude/skills/basecamp/SKILL.md").unwrap(), Some(paths::claude_config_home().join("skills/basecamp/SKILL.md")));
         assert_eq!(destination_of("manifest.json").unwrap(), None);
@@ -460,11 +484,11 @@ mod tests {
 
     #[test]
     fn transcripts_are_found_the_way_claude_code_names_them() {
-        let folder = transcripts::of_thread("terminal-main");
+        let folder = transcripts::of_chef_de_partie("terminal-main");
         let name = folder.file_name().unwrap().to_string_lossy().into_owned();
 
         assert!(name.starts_with('-'));
-        assert!(name.ends_with("-threads-terminal-main"));
+        assert!(name.ends_with("-chefs-de-partie-terminal-main"));
         assert!(name.chars().all(|it| it.is_ascii_alphanumeric() || it == '-'));
     }
 }

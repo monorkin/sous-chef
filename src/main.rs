@@ -1,10 +1,12 @@
-mod accounts;
 mod at_work;
 mod backup;
 mod breaker;
 mod broker;
+mod chef_de_partie;
+mod chef_de_partie_tools;
 mod claude;
 mod clock;
+mod commis;
 mod config;
 mod control;
 mod conversation;
@@ -13,28 +15,29 @@ mod dash;
 mod dash_ansi;
 mod dash_chat;
 mod dash_data;
-mod dash_memory;
+mod dash_recipes;
 mod dash_tables;
 mod deadline;
-mod dispatcher;
-mod editor;
+mod expediter;
 mod fsutil;
 mod github;
-mod hand;
 mod held;
-mod judge;
+mod kitchen;
 mod lifecycle;
 mod logs;
 mod mailbox;
 mod mcp;
 mod mcp_cli;
 mod mcp_server;
-mod memory_tools;
-mod old_name;
+mod old_install;
+mod pass;
 mod paths;
+mod plating;
+mod printer;
+mod printer_cli;
 mod prompt;
 mod proxy;
-mod reviewer;
+mod recipe_book_tools;
 mod runtime;
 mod sandbox;
 mod schedule_tools;
@@ -45,12 +48,10 @@ mod setup_basecamp;
 mod setup_machine;
 mod setup_tools;
 mod skills;
-mod source;
-mod source_cli;
 mod store;
+mod suppliers;
 mod switching;
-mod thread;
-mod thread_tools;
+mod taster;
 mod timekeeper;
 mod toolchains;
 mod transcripts;
@@ -58,7 +59,6 @@ mod triggers;
 mod turns;
 mod upgrade;
 mod work_tools;
-mod workshop;
 
 use anyhow::Result;
 use std::sync::Arc;
@@ -92,18 +92,18 @@ enum Command {
     Restart,
     /// Show whether sous-chef is running and what it's listening on
     Status,
-    /// A dashboard in this terminal: her accounts, memory and work, what's going on, and a line to tell a thread something
+    /// A dashboard in this terminal: her suppliers, recipes and work, what's going on, and a line to tell a chef de partie something
     Dash,
-    /// Have sous-chef check a source now instead of at the next tick; all of them when none is named
-    Poke { source: Option<String> },
-    /// Run sous-chef in this terminal: listen on every source until stopped
+    /// Have sous-chef check a printer now instead of at the next tick; all of them when none is named
+    Poke { printer: Option<String> },
+    /// Run sous-chef in this terminal: listen on every printer until stopped
     Run,
     /// Write everything that makes this sous-chef what it is to a zip; safe while it runs
     Backup {
         /// Where to write the zip; defaults to sous-chef-backup-<time>.zip here
         #[usage(long)]
         to: Option<std::path::PathBuf>,
-        /// Leave her tokens and logins out of the zip: Jev's key, the Claude accounts, her tools' own config
+        /// Leave her tokens and logins out of the zip: Jev's key, the Claude suppliers, her tools' own config
         #[usage(long)]
         without_secrets: bool,
     },
@@ -121,18 +121,18 @@ enum Command {
         #[usage(long, default = "main")]
         conversation: String,
     },
-    /// Say something straight to one of her threads, with your standing; any part of its name will do
-    Tell { thread: String, message: String },
+    /// Say something straight to one of her chefs de partie, with your standing; any part of its name will do
+    Tell { chef_de_partie: String, message: String },
     /// Show what the agent has been doing
     Log {
         /// Keep printing as things happen
         #[usage(short = 'f', long)]
         follow: bool,
-        /// Only the lines of one thread, hand or conversation; any part of its id
+        /// Only the lines of one chef de partie, commis or conversation; any part of its id
         #[usage(long)]
         only: Option<String>,
     },
-    /// Read what was said in a thread or a hand; lists them when no id is given
+    /// Read what was said in a chef de partie or a commis; lists them when no id is given
     Transcript { id: Option<String> },
     /// Manage the MCP servers the agent works through
     Mcp {
@@ -145,12 +145,12 @@ enum Command {
         command: SkillCommand,
     },
     /// Look at the places the agent listens
-    Source {
+    Printer {
         #[usage(subcommand)]
-        command: SourceCommand,
+        command: PrinterCommand,
     },
-    /// Inspect and manage what the agent remembers
-    Memory {
+    /// Inspect and manage what the agent has learned
+    Recipes {
         #[usage(subcommand)]
         command: katami::cli::MemoryCommand,
     },
@@ -167,8 +167,8 @@ enum Command {
 }
 
 #[derive(Subcommands)]
-enum SourceCommand {
-    /// Read a source once and show what the agent would make of it, without acting on anything
+enum PrinterCommand {
+    /// Read a printer once and show what the agent would make of it, without acting on anything
     Check { name: String },
 }
 
@@ -184,17 +184,17 @@ enum GithubCommand {
 
 #[derive(Subcommands)]
 enum ClaudeCommand {
-    /// Log the agent's own Claude folder in, in the browser; then `account add` keeps that login
+    /// Log the agent's own Claude folder in, in the browser; then `supplier add` keeps that login
     Login,
-    /// Manage the accounts in the rotation
-    Account {
+    /// Manage the suppliers in the rotation
+    Supplier {
         #[usage(subcommand)]
         command: ax::cli::AccountCommand,
     },
-    /// Make a stored account the one the agent works as
+    /// Make a stored supplier the one the agent works as
     Switch {
-        /// Account number, email, or alias
-        account: String,
+        /// Supplier number, email, or alias
+        supplier: String,
     },
     /// Who the agent is logged in as right now
     Whoami,
@@ -226,7 +226,7 @@ enum McpCommand {
     List,
     /// Remove a server
     Remove { name: String },
-    /// Mark a tool's argument as prose for people, so the editor restyles it
+    /// Mark a tool's argument as prose for people, so the plating restyles it
     Prose {
         name: String,
         tool: String,
@@ -237,7 +237,7 @@ enum McpCommand {
 fn main() {
     // Before anything makes the new folders, or the old ones would be left
     // behind for good
-    old_name::move_over_if_left_behind();
+    old_install::move_over_if_left_behind();
     paths::claim_own_state();
 
     // Rust ignores SIGPIPE, which turns `sous-chef log | head` into a panic,
@@ -277,18 +277,18 @@ fn run(cli: Cli) -> Result<()> {
         Command::Restart => lifecycle::restart(),
         Command::Status => lifecycle::status(),
         Command::Dash => dash::run(),
-        Command::Poke { source } => lifecycle::poke(source.as_deref()),
-        Command::Run => dispatcher::run(),
+        Command::Poke { printer } => lifecycle::poke(printer.as_deref()),
+        Command::Run => expediter::run(),
         Command::Backup { to, without_secrets } => backup::backup(to, without_secrets),
         Command::Restore { path, force } => backup::restore(&path, force),
         Command::Chat { message, conversation } => {
             // Whoever is at this terminal can already do anything the agent can
             let runtime = Arc::new(Runtime::start()?);
-            thread::wake(&runtime, Arc::new(Terminal::new(&conversation)), Standing::Trusted, &message)?;
+            chef_de_partie::wake(&runtime, Arc::new(Terminal::new(&conversation)), Standing::Trusted, &message)?;
             runtime.wait_until_settled();
             Ok(())
         }
-        Command::Tell { thread, message } => lifecycle::tell(&thread, &message),
+        Command::Tell { chef_de_partie, message } => lifecycle::tell(&chef_de_partie, &message),
         Command::Log { follow, only } => logs::print(follow, only.as_deref()),
         Command::Transcript { id: Some(id) } => transcripts::show(&id),
         Command::Transcript { id: None } => transcripts::list(),
@@ -301,16 +301,16 @@ fn run(cli: Cli) -> Result<()> {
         Command::Skill { command } => match command {
             SkillCommand::Add { folder } => {
                 let name = skills::add(&folder)?;
-                println!("Added {name}. Her threads read it when they need it.");
+                println!("Added {name}. Her chefs de partie read it when they need it.");
                 Ok(())
             }
             SkillCommand::List => skills::list(),
             SkillCommand::Remove { name } => skills::remove(&name),
         },
-        Command::Source { command } => match command {
-            SourceCommand::Check { name } => source_cli::check(&name),
+        Command::Printer { command } => match command {
+            PrinterCommand::Check { name } => printer_cli::check(&name),
         },
-        Command::Memory { command } => katami::cli::run(katami::cli::Cli {
+        Command::Recipes { command } => katami::cli::run(katami::cli::Cli {
             command: katami::cli::Command::Memory { command },
         }),
         Command::Github { command } => match command {
@@ -318,11 +318,11 @@ fn run(cli: Cli) -> Result<()> {
         },
         Command::Claude { command } => match command {
             ClaudeCommand::Login => claude::log_in(),
-            ClaudeCommand::Account { command } => ax::cli::run(ax::cli::Cli {
+            ClaudeCommand::Supplier { command } => ax::cli::run(ax::cli::Cli {
                 command: ax::cli::Command::Account { command },
             }),
-            ClaudeCommand::Switch { account } => ax::cli::run(ax::cli::Cli {
-                command: ax::cli::Command::Switch { account },
+            ClaudeCommand::Switch { supplier } => ax::cli::run(ax::cli::Cli {
+                command: ax::cli::Command::Switch { account: supplier },
             }),
             ClaudeCommand::Whoami => {
                 println!("{}", claude::login());

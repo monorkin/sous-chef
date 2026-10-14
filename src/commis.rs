@@ -1,8 +1,8 @@
-//! A hand: one throw-away Claude Code session, sandboxed into one project.
+//! A commis: one throw-away Claude Code session, sandboxed into one project.
 //!
 //! It can write its project folder and call the tools it was granted, and
 //! that is all. Clean-up rounds resume the same session in the same sandbox.
-//! Discarding the hand deletes its profile and everything else it had, except
+//! Discarding the commis deletes its profile and everything else it had, except
 //! what it did to the project.
 
 use anyhow::{Context, Result, bail};
@@ -11,7 +11,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use crate::accounts;
 use crate::broker::{self, Endpoint, Tool};
 use crate::claude::{self, Reply, Started};
 use crate::clock;
@@ -19,11 +18,12 @@ use crate::logs;
 use crate::paths;
 use crate::proxy::{self, Bridge, Proxy};
 use crate::sandbox::{self, Outside, Sandbox, Service};
+use crate::suppliers;
 use crate::transcripts;
 
 const ON_ANOTHER_MODEL: &str = "Your run was cut off part way — the Claude allowance for the model it ran on is used up — and you have just been started again in the same session on another model. Nothing you did is lost. The limit message in your history is about that, not about anything in the project. Look at where things stand and carry on with the brief from there; when you are done, report as you would have.";
 
-pub struct Hand {
+pub struct Commis {
     id: String,
     project: PathBuf,
     directory: PathBuf,
@@ -34,7 +34,7 @@ pub struct Hand {
     begun: bool,
     granted: Option<Endpoint>,
     services: Vec<Service>,
-    /// Gone with the hand, and the sockets its services are reached through
+    /// Gone with the commis, and the sockets its services are reached through
     /// with them.
     _bridges: Vec<Bridge>,
     /// A proxy of its own when it may fetch from the package registries;
@@ -44,15 +44,15 @@ pub struct Hand {
     rejections: u32,
 }
 
-impl Hand {
-    /// `grant` is every tool this hand may call through the broker. An empty
-    /// grant means no broker at all: the hand can touch its project folder
+impl Commis {
+    /// `grant` is every tool this commis may call through the broker. An empty
+    /// grant means no broker at all: the commis can touch its project folder
     /// and talk to Claude, nothing more. `ports` are services on this
-    /// machine's loopback the hand may reach — a database for its tests —
-    /// and only loopback: anything further is the network, which a hand
+    /// machine's loopback the commis may reach — a database for its tests —
+    /// and only loopback: anything further is the network, which a commis
     /// doesn't have, except the package registries when `registries` says
     /// so.
-    pub fn start(project: &Path, grant: Vec<Box<dyn Tool>>, ports: &[u16], registries: bool) -> Result<Hand> {
+    pub fn start(project: &Path, grant: Vec<Box<dyn Tool>>, ports: &[u16], registries: bool) -> Result<Commis> {
         let project = project
             .canonicalize()
             .with_context(|| format!("{} does not exist", project.display()))?;
@@ -63,7 +63,7 @@ impl Hand {
 
         let id = format!("h{:x}", clock::nanos());
         let directory = paths::sessions_dir().join(&id);
-        claude::write_hand_profile(&directory.join("profile"))?;
+        claude::write_commis_profile(&directory.join("profile"))?;
         sandbox::make_scratch(&directory)?;
         let build_dir = sandbox::build_dir_of(&project)?;
 
@@ -71,7 +71,7 @@ impl Hand {
         let granted = if grant.is_empty() {
             None
         } else {
-            Some(Endpoint::open(&paths::socket(&format!("hand-{id}")), grant)?)
+            Some(Endpoint::open(&paths::socket(&format!("commis-{id}")), grant)?)
         };
         let (services, bridges) = bridge(&id, ports)?;
         let registries = if registries {
@@ -81,8 +81,8 @@ impl Hand {
             None
         };
 
-        logs::event("hand.started", json!({ "hand": id, "project": project, "grant": granted_names, "services": ports, "registries": registries.is_some() }));
-        Ok(Hand {
+        logs::event("commis.started", json!({ "commis": id, "project": project, "grant": granted_names, "services": ports, "registries": registries.is_some() }));
+        Ok(Commis {
             id,
             project,
             directory,
@@ -114,7 +114,7 @@ impl Hand {
         &self.project
     }
 
-    /// Everything this hand has been asked so far: the brief, then each
+    /// Everything this commis has been asked so far: the brief, then each
     /// round of notes it was sent back with.
     pub fn asked(&self) -> String {
         self.asked.join("\n\nSent back with these notes:\n")
@@ -125,7 +125,7 @@ impl Hand {
         self.rejections
     }
 
-    /// One more turn in its session after it was stopped part way. A hand
+    /// One more turn in its session after it was stopped part way. A commis
     /// stopped in its first round has a session all the same, only not one
     /// that has answered yet.
     pub fn last_word(&mut self, ask: &str, outside: &Outside, started: &Started) -> Result<String> {
@@ -136,10 +136,10 @@ impl Hand {
     pub fn work(&mut self, brief: &str, outside: &Outside, started: &Started) -> Result<String> {
         self.asked.push(brief.to_string());
         if self.begun {
-            claude::refresh_hand_login(&self.directory.join("profile"))?;
+            claude::refresh_commis_login(&self.directory.join("profile"))?;
         }
 
-        let reply = claude::on_each_model(&outside.models.hands, |model, after_another| {
+        let reply = claude::on_each_model(&outside.models.commis, |model, after_another| {
             if after_another {
                 // The model before it ran out part way through, in this same
                 // session
@@ -153,23 +153,23 @@ impl Hand {
         // an empty folder behind; only an empty one can be removed this way
         let _ = fs::remove_dir(self.project.join(".git"));
         let reply = reply?;
-        logs::event("hand.reported", json!({ "hand": self.id, "session": reply.session_id }));
+        logs::event("commis.reported", json!({ "commis": self.id, "session": reply.session_id }));
         self.begun = true;
         Ok(reply.result)
     }
 
     fn run(&mut self, model: &str, told: &str, outside: &Outside, started: &Started) -> Result<Reply> {
         let (id, profile) = (self.id.clone(), self.directory.join("profile"));
-        // Her login was refreshed while the hand ran and the token it held
-        // was revoked with that, the token simply expired, or the account it
+        // Her login was refreshed while the commis ran and the token it held
+        // was revoked with that, the token simply expired, or the supplier it
         // was on is spent. The session is whole: it goes on with her current
         // login and what it had done.
         let refresh = |spent: bool| {
             if spent {
-                accounts::moved_off_the_spent_account();
+                suppliers::moved_off_the_spent_supplier();
             }
-            logs::event("hand.login_refreshed", json!({ "hand": id, "spent": spent }));
-            claude::refresh_hand_login(&profile)
+            logs::event("commis.login_refreshed", json!({ "commis": id, "spent": spent }));
+            claude::refresh_commis_login(&profile)
         };
         claude::again_on_her_current_login(refresh, |again| match again {
             Some(told_again) => {
@@ -211,25 +211,25 @@ impl Hand {
     pub fn discard(self) {
         transcripts::keep(&self.directory.join("profile"), &self.id, false);
         let _ = fs::remove_dir_all(&self.directory);
-        logs::event("hand.discarded", json!({ "hand": self.id }));
+        logs::event("commis.discarded", json!({ "commis": self.id }));
     }
 }
 
-/// One bridge per port, listening on a socket of the hand's and connecting
-/// to the port on loopback. They go with the hand.
-fn bridge(hand: &str, ports: &[u16]) -> Result<(Vec<Service>, Vec<Bridge>)> {
+/// One bridge per port, listening on a socket of the commis's and connecting
+/// to the port on loopback. They go with the commis.
+fn bridge(commis: &str, ports: &[u16]) -> Result<(Vec<Service>, Vec<Bridge>)> {
     let mut services = Vec::new();
     let mut bridges = Vec::new();
     for (n, port) in ports.iter().enumerate() {
-        let socket = paths::socket(&format!("service-{hand}-{n}"));
+        let socket = paths::socket(&format!("service-{commis}-{n}"));
         bridges.push(Bridge::start(&socket, *port).with_context(|| format!("could not bridge port {port} into the sandbox"))?);
         services.push(Service { port: *port, socket });
     }
     Ok((services, bridges))
 }
 
-/// What a hand can reach, said before it starts. Without this, a database
-/// its thread didn't bridge in looks to it like a database that is down, and
+/// What a commis can reach, said before it starts. Without this, a database
+/// its chef de partie didn't bridge in looks to it like a database that is down, and
 /// it reports the machine as broken instead of saying what it wasn't given.
 pub fn what_it_can_reach(services: &[Service], registries: bool) -> String {
     let network = if registries {
@@ -251,11 +251,11 @@ pub fn what_it_can_reach(services: &[Service], registries: bool) -> String {
     )
 }
 
-/// A hand writes its project, and the brain acts on what it finds there, so
-/// a project is never a folder that holds what sous-chef or the person runs on:
+/// A commis writes its project, and the brain acts on what it finds there, so
+/// a project is never a folder that holds what sous-chef or the chef runs on:
 /// its own state, the home folder itself or anything above it, or a
 /// dot-folder in it — keys, configs, other tools' credentials. Whoever asks
-/// for the hand doesn't matter; this is what keeps someone who can only hand
+/// for the commis doesn't matter; this is what keeps someone who can only hand
 /// out work from writing her schedules or her config through one.
 fn refuse_what_is_not_a_project(project: &Path, home: &Path, her_own: &[PathBuf]) -> Result<()> {
     let settled: Vec<PathBuf> = her_own.iter().map(|it| it.canonicalize().unwrap_or_else(|_| it.clone())).collect();
@@ -270,7 +270,7 @@ fn refuse_what_is_not_a_project(project: &Path, home: &Path, her_own: &[PathBuf]
         .is_some_and(|first| first.as_os_str().to_string_lossy().starts_with('.'));
 
     if touches_her_own || holds_home || hidden_in_home {
-        bail!("{} is not a project folder: hands don't work in the home folder, in a dot-folder in it, or anywhere my own files are", project.display())
+        bail!("{} is not a project folder: commis don't work in the home folder, in a dot-folder in it, or anywhere my own files are", project.display())
     } else {
         Ok(())
     }
@@ -281,7 +281,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_hand_is_told_what_it_can_reach_so_it_doesnt_call_it_broken() {
+    fn a_commis_is_told_what_it_can_reach_so_it_doesnt_call_it_broken() {
         let granted = [
             Service { port: 33380, socket: PathBuf::from("/run/sous-chef/service-h1-0.sock") },
             Service { port: 6379, socket: PathBuf::from("/run/sous-chef/service-h1-1.sock") },
@@ -295,7 +295,7 @@ mod tests {
     }
 
     #[test]
-    fn a_hand_is_kept_out_of_everything_that_is_not_a_project() {
+    fn a_commis_is_kept_out_of_everything_that_is_not_a_project() {
         let home = Path::new("/home/someone");
         let her_own = [PathBuf::from("/srv/sous-chef/config"), PathBuf::from("/srv/sous-chef/data")];
         let refused = |project: &str| refuse_what_is_not_a_project(Path::new(project), home, &her_own).is_err();
@@ -305,7 +305,7 @@ mod tests {
         assert!(!refused("/srv/projects/frontdesk"));
 
         assert!(refused("/srv/sous-chef/data"), "its database lives here");
-        assert!(refused("/srv/sous-chef/data/threads/t1"));
+        assert!(refused("/srv/sous-chef/data/chefs_de_partie/t1"));
         assert!(refused("/srv/sous-chef"), "a folder that holds its state is as good as its state");
         assert!(refused("/home/someone"));
         assert!(refused("/home"));

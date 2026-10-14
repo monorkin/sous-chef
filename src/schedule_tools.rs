@@ -1,14 +1,14 @@
-//! How a thread sets up work for its future self: "every weekday at nine,
-//! check the deploy queue", "on Friday, remind Marta about the invoice".
+//! How a chef de partie sets up work for its future self: "every weekday at
+//! nine, check the deploy queue", "on Friday, remind Marta about the invoice".
 //!
 //! A schedule belongs to the conversation it was made in. When it comes due
-//! the scheduler wakes that conversation's thread with the task, as if
-//! someone had just asked for it there, and whatever the thread says lands in
-//! that conversation.
+//! the scheduler wakes that conversation's chef de partie with the task, as if
+//! someone had just asked for it there, and whatever the chef de partie says
+//! lands in that conversation.
 //!
 //! Recurring schedules are five-field cron expressions in the machine's own
 //! time zone — the one format every model already knows. The limits are in
-//! code because nobody is around to notice a thread that was talked into
+//! code because nobody is around to notice a chef de partie that was talked into
 //! waking itself every minute: no schedule may run more often than every five
 //! minutes, and a conversation may hold twenty.
 
@@ -133,8 +133,8 @@ impl Tool for Schedule {
     }
 }
 
-/// Says how far off the first run is and what time it is here: a thread
-/// reads UTC everywhere else — git, GitHub, the log — and a time it meant in
+/// Says how far off the first run is and what time it is here: a chef de
+/// partie reads UTC everywhere else — git, GitHub, the log — and a time it meant in
 /// UTC is hours off in local time, which only the distance gives away.
 fn scheduled(id: i64, first_run: i64, now: DateTime<Local>) -> String {
     format!(
@@ -269,8 +269,8 @@ mod tests {
         let directory = std::env::temp_dir().join(format!("sous-chef-schedule-tools-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
         let database = directory.join("sous-chef.db");
-        let origin = Origin { source: "basecamp".to_string(), conversation: "card-1".to_string() };
-        let elsewhere = Origin { source: "basecamp".to_string(), conversation: "card-2".to_string() };
+        let origin = Origin { printer: "basecamp".to_string(), conversation: "card-1".to_string() };
+        let elsewhere = Origin { printer: "basecamp".to_string(), conversation: "card-2".to_string() };
 
         let schedule = Schedule { database: database.clone(), origin: origin.clone(), standing: Standing::CanAssignWork };
         assert!(schedule.call(&json!({ "task": "Check the queue", "cron": "0 9 * * 1-5" })).unwrap().contains("number 1"));

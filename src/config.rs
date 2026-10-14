@@ -3,7 +3,7 @@
 //! The settings are one JSON file, `config.json`. The two pieces of prose
 //! live next to it as markdown, because nobody should have to edit prose
 //! inside a JSON string: `style.md` is how the agent writes to people, and
-//! `CLAUDE.md` is who she is — every thread reads it. Tokens are not here at
+//! `CLAUDE.md` is who she is — every chef de partie reads it. Tokens are not here at
 //! all; see `secrets`.
 //!
 //! All three files steer the agent, so they are written private and refused if
@@ -28,8 +28,9 @@ pub struct Config {
     pub mcp_servers: BTreeMap<String, McpServer>,
     /// Where people talk to the agent, by name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub sources: BTreeMap<String, Source>,
-    /// Who the agent listens to: the sender id a source reports, to the name she
+    #[serde(alias = "sources")]
+    pub printers: BTreeMap<String, Printer>,
+    /// Who the agent listens to: the sender id a printer reports, to the name she
     /// knows them by. Anyone else is ignored.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub people: BTreeMap<String, String>,
@@ -39,22 +40,24 @@ pub struct Config {
     pub jev_url: Option<String>,
     /// Set to false when something else already runs `ax auto-switch`.
     #[serde(default = "yes", skip_serializing_if = "is_yes")]
-    pub rotate_accounts: bool,
-    /// How long one run of a hand or a reviewer may take before it is
-    /// stopped. A discarded hand is an hour of work nobody ever hears
+    #[serde(alias = "rotate_accounts")]
+    pub rotate_suppliers: bool,
+    /// How long one run of a commis or a pass may take before it is
+    /// stopped. A discarded commis is an hour of work nobody ever hears
     /// about, so this is set for the long jobs, not the common ones.
     #[serde(default = "three_hours")]
     pub minutes_per_run: u64,
-    /// How long one turn of a thread may take. Longer than a hand's: a
-    /// thread spends most of a turn waiting on its hands and their reviews,
-    /// and cut off at a hand's limit it would take the hand at work with it.
-    #[serde(default = "six_hours")]
-    pub minutes_per_thread_turn: u64,
-    /// How many hands one thread may have at work; past it a hand is
-    /// refused. Left to itself a thread started hands by the handful, and
-    /// they ate a day's allowance in minutes.
-    #[serde(default = "one")]
-    pub hands_per_thread: usize,
+    /// How long one turn of a chef de partie may take. Longer than a commis's:
+    /// a chef de partie spends most of a turn waiting on its commis and their
+    /// passes, and cut off at a commis's limit it would take the commis at
+    /// work with it.
+    #[serde(default = "six_hours", alias = "minutes_per_thread_turn")]
+    pub minutes_per_chef_de_partie_turn: u64,
+    /// How many commis one chef de partie may have at work; past it a commis
+    /// is refused. Left to itself a chef de partie called commis by the
+    /// handful, and they ate a day's allowance in minutes.
+    #[serde(default = "one", alias = "hands_per_thread")]
+    pub commis_per_chef_de_partie: usize,
     #[serde(default)]
     pub models: Models,
 }
@@ -66,16 +69,21 @@ pub struct Config {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Models {
-    /// Threads plan the work and decide who does what, so they get the most
-    /// capable model.
-    pub threads: Chain,
-    pub hands: Chain,
-    pub reviewers: Chain,
-    /// What judges untrusted text. Besides Claude models this takes "jev",
+    /// Chefs de partie plan the work and decide who does what, so they get the
+    /// most capable model.
+    #[serde(alias = "threads")]
+    pub chefs_de_partie: Chain,
+    #[serde(alias = "hands")]
+    pub commis: Chain,
+    #[serde(alias = "reviewers")]
+    pub pass: Chain,
+    /// What tastes untrusted text. Besides Claude models this takes "jev",
     /// which is skipped while no Jev key is set up.
-    pub screening: Chain,
+    #[serde(alias = "screening")]
+    pub tasting: Chain,
     /// What rewrites her writing to her style.
-    pub editing: Chain,
+    #[serde(alias = "editing")]
+    pub plating: Chain,
 }
 
 pub const JEV: &str = "jev";
@@ -83,11 +91,11 @@ pub const JEV: &str = "jev";
 impl Default for Models {
     fn default() -> Models {
         Models {
-            threads: Chain::of(&["fable", "opus"]),
-            hands: Chain::of(&["opus"]),
-            reviewers: Chain::of(&["opus"]),
-            screening: Chain::of(&[JEV, "haiku"]),
-            editing: Chain::of(&["haiku"]),
+            chefs_de_partie: Chain::of(&["fable", "opus"]),
+            commis: Chain::of(&["opus"]),
+            pass: Chain::of(&["opus"]),
+            tasting: Chain::of(&[JEV, "haiku"]),
+            plating: Chain::of(&["haiku"]),
         }
     }
 }
@@ -164,24 +172,24 @@ impl Default for Config {
         Config {
             name: anna(),
             mcp_servers: BTreeMap::new(),
-            sources: BTreeMap::new(),
+            printers: BTreeMap::new(),
             people: BTreeMap::new(),
             jev_url: None,
-            rotate_accounts: true,
+            rotate_suppliers: true,
             minutes_per_run: three_hours(),
-            minutes_per_thread_turn: six_hours(),
-            hands_per_thread: one(),
+            minutes_per_chef_de_partie_turn: six_hours(),
+            commis_per_chef_de_partie: one(),
             models: Models::default(),
         }
     }
 }
 
-/// A source is an MCP server sous-chef also listens on. There is no push in MCP,
+/// A printer is an MCP server sous-chef also listens on. There is no push in MCP,
 /// so listening is calling one of the server's own tools on a timer and
 /// picking the new messages out of the JSON it answers with. The four
 /// pointers are JSON pointers into each item.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Source {
+pub struct Printer {
     pub server: String,
     pub watch: Call,
     #[serde(default = "default_interval")]
@@ -194,39 +202,39 @@ pub struct Source {
     pub id: Pointers,
     pub conversation: String,
     pub sender: String,
-    /// What to call the sender, for a source that listens to anyone.
+    /// What to call the sender, for a printer that listens to anyone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sender_name: Option<String>,
     /// Listen to everyone who can reach her here, not only to `people`. For
-    /// a source that already decides who that is: an agent in Basecamp only
+    /// a printer that already decides who that is: an agent in Basecamp only
     /// hears from the projects it was added to.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub anyone: bool,
-    /// What the thread is told. Several pointers when a source splits it up —
+    /// What the chef de partie is told. Several pointers when a printer splits it up —
     /// a title, an excerpt, and a link to read the rest.
     pub text: Pointers,
     /// The call that answers in a conversation. `{conversation}` and
     /// `{text}` in its arguments are filled in. Left out when answering isn't
     /// one call — on Basecamp it depends on what is being answered — and the
-    /// thread then answers with the server's own tools.
+    /// chef de partie then answers with the server's own tools.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply: Option<Call>,
     /// A command that runs for as long as sous-chef does and prints a line
-    /// whenever something happens on this source — `hey watch --events new`,
+    /// whenever something happens on this printer — `hey watch --events new`,
     /// say. Every line is a poke. With one of these the timer only has to
     /// catch what the trigger missed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger: Option<Trigger>,
-    /// For a source that is read from a position rather than as a list of
+    /// For a printer that is read from a position rather than as a list of
     /// what is unread: where the position is in an answer, and where it goes
     /// in the next call.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<Cursor>,
-    /// Said to the thread with every message from here, for a source whose
+    /// Said to the chef de partie with every message from here, for a printer whose
     /// messages aren't what someone wrote but a pointer to it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
-    /// How to find out what was last said, for a source whose items stand
+    /// How to find out what was last said, for a printer whose items stand
     /// for a conversation and not a message: Basecamp's unreads keep the
     /// first comment's writer and excerpt however many comments follow, and
     /// whose word a turn runs on has to be whoever actually spoke last.
@@ -235,7 +243,7 @@ pub struct Source {
 }
 
 /// Two JSON pointers: `from` into the watch tool's answer, `into` into its
-/// arguments. The first call goes out as written, which for such a source
+/// arguments. The first call goes out as written, which for such a printer
 /// means "from now"; every later one carries the position the last answer
 /// gave. It is kept on disk, so what arrived while sous-chef was down is there
 /// when it comes back.
@@ -320,13 +328,13 @@ pub struct McpServer {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub env: BTreeMap<String, String>,
     /// Tool name to the arguments that carry prose for people, which the
-    /// editor restyles before the call goes out.
+    /// plating restyles before the call goes out.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub prose: BTreeMap<String, Vec<String>>,
     /// What the server's tool listing looked like when it was added.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fingerprint: Option<String>,
-    /// The server acts as the person she works for, not as her: only a
+    /// The server acts as the chef she works for, not as her: only a
     /// turn on a trusted person's word gets its tools.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub trusted_only: bool,
@@ -415,23 +423,46 @@ mod tests {
 
     #[test]
     fn models_are_one_or_a_list_and_those_left_out_keep_their_defaults() {
-        let config: Config = serde_json::from_str(r#"{ "models": { "threads": "opus", "screening": ["sonnet", "haiku"] } }"#).unwrap();
+        let config: Config = serde_json::from_str(r#"{ "models": { "chefs_de_partie": "opus", "tasting": ["sonnet", "haiku"] } }"#).unwrap();
         assert_eq!(
             config.models,
             Models {
-                threads: Chain::of(&["opus"]),
-                hands: Chain::of(&["opus"]),
-                reviewers: Chain::of(&["opus"]),
-                screening: Chain::of(&["sonnet", "haiku"]),
-                editing: Chain::of(&["haiku"]),
+                chefs_de_partie: Chain::of(&["opus"]),
+                commis: Chain::of(&["opus"]),
+                pass: Chain::of(&["opus"]),
+                tasting: Chain::of(&["sonnet", "haiku"]),
+                plating: Chain::of(&["haiku"]),
             }
         );
 
         let config: Config = serde_json::from_str("{}").unwrap();
-        assert_eq!(config.models.threads, Chain::of(&["fable", "opus"]));
-        assert_eq!(config.models.screening, Chain::of(&["jev", "haiku"]));
+        assert_eq!(config.models.chefs_de_partie, Chain::of(&["fable", "opus"]));
+        assert_eq!(config.models.tasting, Chain::of(&["jev", "haiku"]));
 
-        let none = serde_json::from_str::<Config>(r#"{ "models": { "hands": [] } }"#).unwrap_err();
+        let none = serde_json::from_str::<Config>(r#"{ "models": { "commis": [] } }"#).unwrap_err();
         assert!(none.to_string().contains("at least one model"), "{none}");
+    }
+
+    #[test]
+    fn a_config_written_with_the_old_keys_still_loads() {
+        let config: Config = serde_json::from_str(
+            r#"{ "rotate_accounts": false, "minutes_per_thread_turn": 5, "hands_per_thread": 2,
+                 "models": { "threads": "sonnet", "hands": "haiku", "reviewers": "haiku", "screening": "haiku", "editing": "sonnet" } }"#,
+        )
+        .unwrap();
+        assert!(!config.rotate_suppliers);
+        assert_eq!(config.minutes_per_chef_de_partie_turn, 5);
+        assert_eq!(config.commis_per_chef_de_partie, 2);
+        assert_eq!(
+            config.models,
+            Models {
+                chefs_de_partie: Chain::of(&["sonnet"]),
+                commis: Chain::of(&["haiku"]),
+                pass: Chain::of(&["haiku"]),
+                tasting: Chain::of(&["haiku"]),
+                plating: Chain::of(&["sonnet"]),
+            }
+        );
+        assert!(serde_json::to_string(&config).unwrap().contains("chefs_de_partie"), "saving writes the new key");
     }
 }

@@ -93,8 +93,8 @@ impl Endpoint {
             .with_context(|| format!("could not listen on {}", socket.display()))?;
         let tools = Arc::new(tools);
         let closed = Arc::new(AtomicBool::new(false));
-        // The socket is named for the session it serves — thread-<key>,
-        // hand-<id> — which is who a call in the log belongs to
+        // The socket is named for the session it serves — chef_de_partie-<key>,
+        // commis-<id> — which is who a call in the log belongs to
         let who: Arc<str> = Arc::from(socket.file_stem().unwrap_or_default().to_string_lossy().as_ref());
 
         let closed_for_listening = closed.clone();

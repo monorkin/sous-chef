@@ -1,21 +1,21 @@
-//! The languages and tools a hand can run.
+//! The languages and tools a commis can run.
 //!
 //! A sandbox sees /usr and nothing from the home directory, which is where
-//! mise keeps Ruby, Node, Go and the rest — so without help a hand can edit a
-//! project but not run its tests. mise's installs folder is bound read-only
-//! and its bin folders go on the hand's PATH.
+//! mise keeps Ruby, Node, Go and the rest — so without help a commis can edit
+//! a project but not run its tests. mise's installs folder is bound read-only
+//! and its bin folders go on the commis's PATH.
 //!
 //! The list comes from running mise in the home directory, never in the
-//! project: a hand can write the project's mise.toml, and mise reading that
-//! on the host would be the hand running code outside its sandbox. Only
+//! project: a commis can write the project's mise.toml, and mise reading that
+//! on the host would be the commis running code outside its sandbox. Only
 //! folders under the installs folder are used; mise also lists places like
 //! cargo's bin folder, whose parent holds registry credentials.
 //!
 //! Rust doesn't live under mise: rustup keeps its toolchains in a folder of
 //! its own, and cargo its downloaded crates in another, next to the
-//! person's registry token. The toolchain goes in read-only, the crates go
+//! chef's registry token. The toolchain goes in read-only, the crates go
 //! in with a writable layer on top — cargo unpacks into its cache — and
-//! never the token. A hand has no network, so it builds offline from what
+//! never the token. A commis has no network, so it builds offline from what
 //! the brain fetched before starting it.
 
 use serde_json::json;
@@ -45,11 +45,11 @@ pub struct Rust {
     pub caches: Vec<PathBuf>,
 }
 
-/// mr boxington, from the person's own tools, with a store of her own: one
+/// mr boxington, from the chef's own tools, with a store of her own: one
 /// cache of compiled dependencies and one set of target folders for every
 /// session, kept to a budget and pruned by mbx itself. Without it each
 /// worktree compiled the world into a folder nothing ever pruned, and two
-/// dozen of them filled the disk. Not the person's store: their builds would
+/// dozen of them filled the disk. Not the chef's store: their builds would
 /// pick up what a sandboxed session compiled.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Mbx {
@@ -76,7 +76,7 @@ impl Toolchains {
     }
 
     fn from_mise(mise: &Path, home: &Path) -> Toolchains {
-        // Hands without mise's tools still work; a sous-chef that never comes up
+        // Commis without mise's tools still work; a sous-chef that never comes up
         // because mise is busy doesn't
         let mut bin_paths = Command::new(mise);
         bin_paths.arg("bin-paths").current_dir(home);

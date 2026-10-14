@@ -1,4 +1,4 @@
-//! What is said to a conversation while its thread is busy, read together.
+//! What is said to a conversation while its chef de partie is busy, read together.
 //!
 //! Every turn resends the whole session, so seven comments read one turn
 //! each cost seven times what they cost read in one. Each message is posted

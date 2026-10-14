@@ -1,9 +1,9 @@
 //! `sous-chef dash`: her tabs in one terminal. The overview has what is going on
-//! now and the end of her log; the chat tells a thread something the way
-//! `sous-chef tell` does, with what that thread is doing above; the memory
-//! tab
+//! now and the end of her log; the chat tells a chef de partie something the
+//! way `sous-chef tell` does, with what that chef de partie is doing above;
+//! the recipes tab
 //! reads, archives and brings back what she has learned; usage has her
-//! Claude accounts and Jev's bill. What it shows is gathered on a thread of
+//! Claude suppliers and Jev's bill. What it shows is gathered on a thread of
 //! its own every few seconds, so a slow answer from ax or a running sous-chef
 //! never holds up the keyboard.
 
@@ -21,7 +21,7 @@ use std::time::Duration;
 use crate::dash_ansi::line_of;
 use crate::dash_chat::{Chat, window_of};
 use crate::dash_data::{self, Snapshot};
-use crate::dash_memory::{self, Memories};
+use crate::dash_recipes::{self, Recipes};
 use crate::dash_tables;
 
 const REFRESH: Duration = Duration::from_secs(5);
@@ -48,11 +48,11 @@ enum Tab {
     #[default]
     Overview,
     Chat,
-    Memory,
+    Recipes,
     Usage,
 }
 
-const TABS: [Tab; 4] = [Tab::Overview, Tab::Chat, Tab::Memory, Tab::Usage];
+const TABS: [Tab; 4] = [Tab::Overview, Tab::Chat, Tab::Recipes, Tab::Usage];
 
 impl Tab {
     fn index(self) -> usize {
@@ -63,7 +63,7 @@ impl Tab {
         match self {
             Tab::Overview => "Overview",
             Tab::Chat => "Chat",
-            Tab::Memory => "Memory",
+            Tab::Recipes => "Recipes",
             Tab::Usage => "Usage",
         }
     }
@@ -71,8 +71,8 @@ impl Tab {
     fn help(self) -> &'static str {
         match self {
             Tab::Overview => "Tab or 1-4 switch tabs · ↑↓ PgUp/PgDn read back through the log · q quit",
-            Tab::Chat => "Tab switches tabs · ↑↓ pick a thread · Enter send · PgUp/PgDn read back · Esc leave",
-            Tab::Memory => "Tab or 1-4 switch tabs · ↑↓ pick · PgUp/PgDn read on · a archive · u bring back · q quit",
+            Tab::Chat => "Tab switches tabs · ↑↓ pick a chef de partie · Enter send · PgUp/PgDn read back · Esc leave",
+            Tab::Recipes => "Tab or 1-4 switch tabs · ↑↓ pick · PgUp/PgDn read on · a archive · u bring back · q quit",
             Tab::Usage => "Tab or 1-4 switch tabs · q quit",
         }
     }
@@ -82,8 +82,8 @@ impl Tab {
 #[derive(Debug, PartialEq)]
 pub enum Effect {
     Nothing,
-    Tell { thread: String, message: String },
-    OtherThread,
+    Tell { chef_de_partie: String, message: String },
+    OtherChefDePartie,
     Leave,
     Archive { id: String },
     Unarchive { id: String },
@@ -96,7 +96,7 @@ struct Dash {
     /// Lines the log is scrolled back from its newest.
     log_back: u16,
     chat: Chat,
-    memories: Memories,
+    recipes: Recipes,
     quitting: bool,
 }
 
@@ -120,28 +120,28 @@ impl Dash {
     }
 
     fn take(&mut self, snapshot: Snapshot) {
-        if self.chat.thread.is_none() {
-            self.chat.thread = snapshot.now.as_ref().ok().and_then(|it| it.threads.first().cloned());
+        if self.chat.chef_de_partie.is_none() {
+            self.chat.chef_de_partie = snapshot.now.as_ref().ok().and_then(|it| it.chefs_de_partie.first().cloned());
         }
         self.snapshot = Some(snapshot);
     }
 
     fn act_on(&mut self, effect: Effect) {
         match effect {
-            Effect::Tell { thread, message } => self.chat.tell(&thread, &message),
-            Effect::OtherThread => self.chat.read_replies(),
+            Effect::Tell { chef_de_partie, message } => self.chat.tell(&chef_de_partie, &message),
+            Effect::OtherChefDePartie => self.chat.read_replies(),
             Effect::Leave => self.tab = Tab::Overview,
-            Effect::Archive { id } => self.memories.said = self.marked(&id, dash_memory::archive(&id), true),
-            Effect::Unarchive { id } => self.memories.said = self.marked(&id, dash_memory::unarchive(&id), false),
+            Effect::Archive { id } => self.recipes.said = self.marked(&id, dash_recipes::archive(&id), true),
+            Effect::Unarchive { id } => self.recipes.said = self.marked(&id, dash_recipes::unarchive(&id), false),
             Effect::Nothing => {}
         }
     }
 
-    /// The memory shows as it now is before the next look at the store.
+    /// The recipe shows as it now is before the next look at the store.
     fn marked(&mut self, id: &str, done: Result<String>, archived: bool) -> String {
         match done {
             Ok(said) => {
-                if let Some(Ok(rows)) = self.snapshot.as_mut().map(|it| &mut it.memories)
+                if let Some(Ok(rows)) = self.snapshot.as_mut().map(|it| &mut it.recipes)
                     && let Some(row) = rows.iter_mut().find(|it| it.id == id)
                 {
                     row.archived = archived;
@@ -161,10 +161,10 @@ impl Dash {
         match key.code {
             KeyCode::Tab => self.tab = TABS[(self.tab.index() + 1) % TABS.len()],
             KeyCode::BackTab => self.tab = TABS[(self.tab.index() + TABS.len() - 1) % TABS.len()],
-            _ if self.tab == Tab::Chat => return self.chat.press(key.code, &self.threads()),
+            _ if self.tab == Tab::Chat => return self.chat.press(key.code, &self.chefs_de_partie()),
             KeyCode::Char('q') => self.quitting = true,
             KeyCode::Char(digit @ '1'..='4') => self.tab = TABS[digit as usize - '1' as usize],
-            _ if self.tab == Tab::Memory => return self.memories.press(key.code, memory_rows_of(&self.snapshot)),
+            _ if self.tab == Tab::Recipes => return self.recipes.press(key.code, recipe_rows_of(&self.snapshot)),
             KeyCode::Up | KeyCode::Char('k') if self.tab == Tab::Overview => self.log_back = self.log_back.saturating_add(1),
             KeyCode::Down | KeyCode::Char('j') if self.tab == Tab::Overview => self.log_back = self.log_back.saturating_sub(1),
             KeyCode::PageUp if self.tab == Tab::Overview => self.log_back = self.log_back.saturating_add(10),
@@ -174,8 +174,8 @@ impl Dash {
         Effect::Nothing
     }
 
-    fn threads(&self) -> Vec<String> {
-        self.snapshot.as_ref().and_then(|it| it.now.as_ref().ok()).map(|it| it.threads.clone()).unwrap_or_default()
+    fn chefs_de_partie(&self) -> Vec<String> {
+        self.snapshot.as_ref().and_then(|it| it.now.as_ref().ok()).map(|it| it.chefs_de_partie.clone()).unwrap_or_default()
     }
 
     fn draw(&self, frame: &mut Frame) {
@@ -189,10 +189,10 @@ impl Dash {
         match self.tab {
             Tab::Overview => self.draw_overview(frame, body, snapshot),
             Tab::Chat => {
-                let about = self.chat.thread.as_ref().and_then(|thread| snapshot.now.as_ref().ok()?.about.get(thread));
+                let about = self.chat.chef_de_partie.as_ref().and_then(|chef_de_partie| snapshot.now.as_ref().ok()?.about.get(chef_de_partie));
                 self.chat.draw(frame, body, about);
             }
-            Tab::Memory => self.memories.draw(frame, body, &snapshot.memories),
+            Tab::Recipes => self.recipes.draw(frame, body, &snapshot.recipes),
             Tab::Usage => draw_usage(frame, body, snapshot),
         }
     }
@@ -228,8 +228,8 @@ impl Dash {
     }
 }
 
-fn memory_rows_of(snapshot: &Option<Snapshot>) -> &[dash_data::MemoryRow] {
-    match snapshot.as_ref().map(|it| &it.memories) {
+fn recipe_rows_of(snapshot: &Option<Snapshot>) -> &[dash_data::RecipeRow] {
+    match snapshot.as_ref().map(|it| &it.recipes) {
         Some(Ok(rows)) => rows,
         _ => &[],
     }
@@ -237,16 +237,16 @@ fn memory_rows_of(snapshot: &Option<Snapshot>) -> &[dash_data::MemoryRow] {
 
 fn draw_usage(frame: &mut Frame, area: Rect, snapshot: &Snapshot) {
     let block = framed("Claude");
-    if let Some(unknown) = &snapshot.accounts_unknown {
+    if let Some(unknown) = &snapshot.suppliers_unknown {
         return frame.render_widget(Paragraph::new(format!("Usage unknown: {unknown}")).block(block), area);
     }
     let jev_width = if snapshot.jev.is_some() { dash_tables::JEV_WIDTH + 2 } else { 0 };
-    let [accounts, _, jev] = Layout::horizontal([Constraint::Fill(1), Constraint::Length(1), Constraint::Length(jev_width)]).areas(area);
-    let accounts_height = (snapshot.accounts.len() as u16 + 3).min(accounts.height);
-    let accounts = Rect { height: accounts_height, ..accounts };
-    let inner = block.inner(accounts);
-    frame.render_widget(block, accounts);
-    frame.render_widget(dash_tables::accounts(&snapshot.accounts, inner.width), inner);
+    let [suppliers, _, jev] = Layout::horizontal([Constraint::Fill(1), Constraint::Length(1), Constraint::Length(jev_width)]).areas(area);
+    let suppliers_height = (snapshot.suppliers.len() as u16 + 3).min(suppliers.height);
+    let suppliers = Rect { height: suppliers_height, ..suppliers };
+    let inner = block.inner(suppliers);
+    frame.render_widget(block, suppliers);
+    frame.render_widget(dash_tables::suppliers(&snapshot.suppliers, inner.width), inner);
 
     if let Some(rows) = &snapshot.jev {
         let jev = Rect { height: (rows.len() as u16 + 3).min(jev.height), ..jev };
@@ -266,16 +266,16 @@ fn framed(title: &str) -> Block<'static> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dash_data::{MemoryRow, Now};
+    use crate::dash_data::{Now, RecipeRow};
 
     fn key(code: KeyCode) -> KeyEvent {
         KeyEvent::new(code, KeyModifiers::NONE)
     }
 
-    fn dash_with(threads: &[&str], memories: Vec<MemoryRow>) -> Dash {
+    fn dash_with(chefs_de_partie: &[&str], recipes: Vec<RecipeRow>) -> Dash {
         let mut dash = Dash::default();
-        let now = Now { threads: threads.iter().map(|it| it.to_string()).collect(), ..Now::default() };
-        dash.take(Snapshot { accounts: Vec::new(), accounts_unknown: None, jev: None, log: Vec::new(), now: Ok(now), memories: Ok(memories) });
+        let now = Now { chefs_de_partie: chefs_de_partie.iter().map(|it| it.to_string()).collect(), ..Now::default() };
+        dash.take(Snapshot { suppliers: Vec::new(), suppliers_unknown: None, jev: None, log: Vec::new(), now: Ok(now), recipes: Ok(recipes) });
         dash
     }
 
@@ -283,10 +283,10 @@ mod tests {
     fn tabs_switch_by_number_and_tab_and_q_quits_everywhere_but_the_chat() {
         let mut dash = dash_with(&["basecamp-card-1"], Vec::new());
         assert_eq!(dash.tab, Tab::Overview);
-        assert_eq!(dash.chat.thread.as_deref(), Some("basecamp-card-1"), "the first busy thread is picked to begin with");
+        assert_eq!(dash.chat.chef_de_partie.as_deref(), Some("basecamp-card-1"), "the first busy chef de partie is picked to begin with");
 
         dash.press(key(KeyCode::Char('3')));
-        assert_eq!(dash.tab, Tab::Memory);
+        assert_eq!(dash.tab, Tab::Recipes);
         dash.press(key(KeyCode::BackTab));
         assert_eq!(dash.tab, Tab::Chat);
 
@@ -295,7 +295,7 @@ mod tests {
         assert!(!dash.quitting, "in the chat a q is part of the message");
         assert_eq!(dash.tab, Tab::Chat, "and so is a digit");
         dash.press(key(KeyCode::Tab));
-        assert_eq!(dash.tab, Tab::Memory, "Tab leaves the chat");
+        assert_eq!(dash.tab, Tab::Recipes, "Tab leaves the chat");
 
         let effect = dash.press(key(KeyCode::Char('2')));
         dash.act_on(effect);
@@ -321,8 +321,8 @@ mod tests {
     }
 
     #[test]
-    fn a_memory_archived_from_the_tab_shows_archived_at_once() {
-        let memory = |id: &str| MemoryRow {
+    fn a_recipe_archived_from_the_tab_shows_archived_at_once() {
+        let recipe = |id: &str| RecipeRow {
             id: id.to_string(),
             kind: "observation".to_string(),
             entity: None,
@@ -333,15 +333,15 @@ mod tests {
             last_used: None,
             updated: "2026-10-02T08:00:00Z".to_string(),
         };
-        let mut dash = dash_with(&[], vec![memory("aaaa1111"), memory("bbbb2222")]);
+        let mut dash = dash_with(&[], vec![recipe("aaaa1111"), recipe("bbbb2222")]);
         dash.press(key(KeyCode::Char('3')));
         dash.press(key(KeyCode::Down));
         assert_eq!(dash.press(key(KeyCode::Char('a'))), Effect::Archive { id: "bbbb2222".to_string() });
 
         assert_eq!(dash.marked("bbbb2222", Ok("Archived “bbbb2222”.".to_string()), true), "Archived “bbbb2222”.");
-        assert!(memory_rows_of(&dash.snapshot)[1].archived);
-        assert!(!memory_rows_of(&dash.snapshot)[0].archived);
+        assert!(recipe_rows_of(&dash.snapshot)[1].archived);
+        assert!(!recipe_rows_of(&dash.snapshot)[0].archived);
         assert!(dash.marked("aaaa1111", Err(anyhow::anyhow!("locked")), true).starts_with("Couldn't: locked"));
-        assert!(!memory_rows_of(&dash.snapshot)[0].archived, "a failed archive changes nothing");
+        assert!(!recipe_rows_of(&dash.snapshot)[0].archived, "a failed archive changes nothing");
     }
 }

@@ -17,6 +17,26 @@ and learns and improves over time while also being token efficient.
 > Consider all of this a giant Rube Goldberg machine that's actively
 > being tweaked.
 
+## The kitchen
+
+sous-chef is a kitchen, and the words below are used everywhere: in the
+code, the config, the logs and the commands.
+
+| Word | What it is in sous-chef |
+|---|---|
+| chef | You. The person the agent works for. |
+| sous-chef | The harness itself: the program that runs the kitchen. |
+| ticket printers | Where messages come from: Basecamp, HEY, Fizzy, GitHub, Sentry. One message is a ticket. |
+| expediter | Takes each ticket and sends it to the right chef de partie, or starts a new one. |
+| chefs de partie | One per conversation. Each plans the work, writes the brief and delegates it to commis. |
+| commis | A sandboxed Claude Code session that does the actual work in a project folder. |
+| stations | The machines commis run on. Today that is always this one. |
+| the pass | Checks a commis's work before the chef de partie hears about it, and sends back only a verdict. |
+| taster | Screens what comes in and scores the style of what goes out (Jev with a key, haiku without). |
+| plating | Restyles outgoing prose to your style before it is posted. |
+| recipe book | What she has learned, kept by katami. One thing learned is a recipe. |
+| suppliers | The Claude subscriptions she rotates between. |
+
 ## Setting her up
 
 Before you start, you'll have to have Claude Code installed and at least 
@@ -41,10 +61,10 @@ On [Omarchy](https://omarchy.org):
 omarchy-mise-install github:monorkin/sous-chef sous-chef
 ```
 
-Her hands run in [bubblewrap](https://github.com/containers/bubblewrap) and
+Her commis run in [bubblewrap](https://github.com/containers/bubblewrap) and
 reach their services through `socat`, so install both from your distribution.
 If [mr-boxington](https://mr-boxington.jdx.dev) is among your global mise
-tools, her hands build Rust through it, with a cache of her own.
+tools, her commis build Rust through it, with a cache of her own.
 
 Once installed, start the setup process. It will guide you through everything:
 
@@ -66,7 +86,7 @@ sous-chef upgrade 0.2.0     # or to a specific one
 
 This moves the mise install forward and points her service at the new
 binary. She keeps running the old one until you restart her, so pick a
-moment when her hands aren't in the middle of something:
+moment when her commis aren't in the middle of something:
 
 ```bash
 sous-chef restart
@@ -80,10 +100,10 @@ sous-chef start                                # bring her up in the background 
 sous-chef stop                                 # stop her and everything she started
 sous-chef restart                              # stop and start; she picks up whatever she was in the middle of
 sous-chef status
-sous-chef poke basecamp                        # check a source now instead of at the next tick; hook this to webhooks, mail filters, cron
+sous-chef poke basecamp                        # check a printer now instead of at the next tick; hook this to webhooks, mail filters, cron
 sous-chef run                                  # or run her in this terminal until ctrl+c
 sous-chef chat "the deploy is red, have a look" # or talk to her from this terminal
-sous-chef chat --conversation billing "..."    # each conversation is its own thread
+sous-chef chat --conversation billing "..."    # each conversation is its own chef de partie
 sous-chef log -f                               # watch what she's doing
 
 # Backups
@@ -96,16 +116,16 @@ sous-chef mcp add basecamp -- basecamp mcp     # also accepts a server's changed
 sous-chef mcp list
 sous-chef mcp prose basecamp create_comment content   # this argument is prose for people: restyle it
 sous-chef mcp remove basecamp
-sous-chef source check basecamp                # read a source once and show what she'd make of it, without acting
+sous-chef printer check basecamp               # read a printer once and show what she'd make of it, without acting
 
 # Subscription management
-sous-chef claude account add # add the current Claude Code account to the rotation
-sous-chef claude account remove email@example.com
-sous-chef claude account list
+sous-chef claude supplier add # add the current Claude Code account to the rotation
+sous-chef claude supplier remove email@example.com
+sous-chef claude supplier list
 
-# Memory
-sous-chef memory list
-sous-chef memory archive [memory-id]
+# Recipe book
+sous-chef recipes list
+sous-chef recipes archive [recipe-id]
 
 # Logs
 sous-chef log [-f] [--tail]
@@ -113,19 +133,17 @@ sous-chef log [-f] [--tail]
 
 ## Architecture
 
-sous-chef is built around the brain and hands principle. In short, this means
-that there is a "brain" that accomplishes tasks using its "hands".
+sous-chef is built like a kitchen. Tickets come in from the printers, the
+expediter sends each to a chef de partie, and the chef de partie plans the
+work and hands it to commis. Each chef de partie has its own pass.
 
-The agent's brain consists of a dispatcher and multiple threads, 
-each with its own reviewer.
-
-Each hand is a sandboxed instance of Claude Code that can only talk to its brain. It has
-very limited disk access, and no internet access besides localhost. All actions it wants
-to take, that go beyond the sandbox go through an MPC request that's arbitrated by a
-broker.
+Each commis is a sandboxed instance of Claude Code that can only talk to its
+chef de partie. It has very limited disk access, and no internet access
+besides localhost. All actions it wants to take, that go beyond the sandbox go
+through an MCP request that's arbitrated by a broker.
 
 ```
-+- SOURCE -----------------------------------------------------------+
++- PRINTERS ---------------------------------------------------------+
 |                                                                    |
 |            Basecamp / Fizzy / HEY / Github / Sentry                |
 |                                                                    |
@@ -134,29 +152,29 @@ broker.
      | replies,                   | messages,          replies, |
      | comments                   | assignments        comments |
      |                            |                             |
-+----|-- BRAIN -------------------|-----------------------------|----+
++----|-- SOUS-CHEF --------------|-----------------------------|----+
 |    |                            |                             |    |
 |    |               +------------v-------------+               |    |
-|    |               |        DISPATCHER        |               |    |
+|    |               |        EXPEDITER         |               |    |
 |    |               |  classifies and routes   |               |    |
 |    |               +-----+--------------+-----+               |    |
 |    |                     |              |                     |    |
 |    |             message |              | message             |    |
 |    |                     |              |                     |    |
-|  +-+------- THREAD ------v----+    +----v---- THREAD ---------+-+  |
-|  |  SESSION       REVIEWER    |    |  SESSION       REVIEWER    |  |
+|  +-+--- CHEF DE PARTIE --v----+    +----v-- CHEF DE PARTIE ---+-+  |
+|  |  SESSION          PASS     |    |  SESSION          PASS     |  |
 |  |  plans, writes checks the  |    |                            |  |
-|  |  brief + grant hand's work |    |                            |  |
+|  |  brief + grant commis work |    |                            |  |
 |  +---+------------^-----------+    +-----+------^------+------^-+  |
 |      | brief +    | result +             |      |      |      |    |
 |      | grant      | transcript           |      |      |      |    |
 |      |            |                      |      |      |      |    |
 |  +---v------------+----------------------v------+------v------+-+  |
-|  |  BROKER   enforces each hand's grant, carries MCP actions    |  |
+|  |  BROKER   enforces each commis' grant, carries MCP actions   |  |
 |  |           and Claude API traffic                             |  |
 |  +---+------------^---------------+------+------^------+------^-+  |
 |      |            |               |      |      |      |      |    |
-|      |            |  +- MEMORY ---v---+  |      |      |      |    |
+|      |            |  +- RECIPES --v---+  |      |      |      |    |
 |      |            |  | transcript >   |  |      |      |      |    |
 |      |            |  | extract > rules|  |      |      |      |    |
 |      |            |  | > risk > store |  |      |      |      |    |
@@ -165,11 +183,11 @@ broker.
 +------+------------+----------------------+------+------+------+----+
        |            |                      |      |      |      |
        |            |                      |      |      |      |
-   +---v--- HAND ---+-----------+        +-v HAND +-+  +-v HAND +-+
+   +---v-- COMMIS --+-----------+        +-v COMMIS +  +-v COMMIS +
    | Claude Code in a sandbox:  |        |          |  |          |
    | one project folder, no     |        |          |  |          |
    | network, deleted when the  |        |          |  |          |
-   | thread is done with it     |        |          |  |          |
+   | chef de partie is done     |        |          |  |          |
    +----------------------------+        +----------+  +----------+
 ```
 

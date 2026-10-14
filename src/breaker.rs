@@ -5,7 +5,7 @@
 //! fails or takes too long costs a message its answer time. Enough of those
 //! in a short while and the breaker opens — nothing is sent for half an hour,
 //! then it is tried again. A refused key is different. Nothing will fix that
-//! but a person, so it stays off until she is restarted.
+//! but the chef, so it stays off until she is restarted.
 
 use std::collections::VecDeque;
 use std::sync::Mutex;

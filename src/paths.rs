@@ -1,20 +1,23 @@
 //! Where sous-chef keeps its state, and where Claude Code keeps its.
 //!
-//! Everything durable lives under one data directory: the log, each thread's
-//! session, each hand's throw-away profile. Sockets live in the runtime
-//! directory, which the system clears on logout.
+//! Everything durable lives under one data directory: the log, each chef de
+//! partie's session, each commis's throw-away profile. Sockets live in the
+//! runtime directory, which the system clears on logout.
 
 use std::env;
 use std::path::{Path, PathBuf};
 
 const NAME: &str = "sous-chef";
 pub const DATABASE: &str = "sous-chef.db";
+pub const CHEFS_DE_PARTIE: &str = "chefs_de_partie";
+pub const COMMIS: &str = "commis";
+pub const PRINTERS: &str = "printers";
 
 /// The Claude Code config folder she works from: the login she is. Hers,
-/// under her config, and never the person's or the shell's: `sous-chef
-/// claude login` logs into it, `sous-chef claude account add` keeps what is
-/// logged in there, and `sous-chef claude switch` puts another stored account in its
-/// place — the same as ax does for a person, in a store of her own.
+/// under her config, and never the chef's or the shell's: `sous-chef claude
+/// login` logs into it, `sous-chef claude supplier add` keeps what is logged
+/// in there, and `sous-chef claude switch` puts another supplier in its place
+/// — the same as ax does for a person, in a store of her own.
 /// Everything she starts is told this folder explicitly.
 pub fn claude_config_home() -> PathBuf {
     config_dir().join("claude")
@@ -28,21 +31,21 @@ pub fn program(name: &str) -> Option<PathBuf> {
         .find(|candidate| candidate.is_file())
 }
 
-/// What she has learned: katami's store, kept as her own rather than shared
-/// with the person's other sessions.
-pub fn memory_dir() -> PathBuf {
+/// The recipe book, what she has learned: katami's store, kept as her own
+/// rather than shared with the chef's other sessions.
+pub fn recipe_book_dir() -> PathBuf {
     config_dir().join("katami")
 }
 
-/// The Claude accounts she rotates between: ax's store, kept as her own.
-pub fn accounts_dir() -> PathBuf {
+/// The suppliers she rotates between: ax's store, kept as her own.
+pub fn suppliers_dir() -> PathBuf {
     config_dir().join("ax")
 }
 
 /// Where the command-line tools she works through keep their config when
 /// she runs them — her Basecamp profile, say. They are pointed here through
 /// XDG_CONFIG_HOME, so nothing she is set up with ever lands in, or changes,
-/// the person's own config for the same tool.
+/// the chef's own config for the same tool.
 pub fn tools_config_home() -> PathBuf {
     config_dir().join("tools")
 }
@@ -53,11 +56,11 @@ pub fn tools_config_home() -> PathBuf {
 /// find the same store and login she does.
 pub fn claim_own_state() {
     katami::settings::configure(katami::settings::Settings {
-        data_dir: Some(memory_dir()),
+        data_dir: Some(recipe_book_dir()),
         claude_config_dir: Some(claude_config_home()),
     });
     ax::settings::configure(ax::settings::Settings {
-        data_dir: Some(accounts_dir()),
+        data_dir: Some(suppliers_dir()),
         claude_config_dir: Some(claude_config_home()),
         // So what ax tells someone to run next is a command that exists here
         invoked_as: Some("sous-chef claude".to_string()),
@@ -91,12 +94,12 @@ pub fn log_file() -> PathBuf {
     data_dir().join("log.jsonl")
 }
 
-pub fn thread_dir(conversation: &str) -> PathBuf {
-    data_dir().join("threads").join(conversation)
+pub fn chef_de_partie_dir(conversation: &str) -> PathBuf {
+    data_dir().join(CHEFS_DE_PARTIE).join(conversation)
 }
 
-/// Where this process keeps the throw-away profiles of its hands and
-/// reviewers. Keyed by process so a second `sous-chef` never sweeps the first
+/// Where this process keeps the throw-away profiles of its commis and of the
+/// pass. Keyed by process so a second `sous-chef` never sweeps the first
 /// one's away.
 pub fn sessions_dir() -> PathBuf {
     all_sessions_dir().join(std::process::id().to_string())
@@ -106,14 +109,14 @@ pub fn all_sessions_dir() -> PathBuf {
     data_dir().join("sessions")
 }
 
-/// What hands left behind once they were discarded: their transcripts and
-/// their reviews', by hand.
-pub fn hands_dir() -> PathBuf {
-    data_dir().join("hands")
+/// What commis left behind once they were let go: their transcripts and
+/// those of the pass, by commis.
+pub fn commis_dir() -> PathBuf {
+    data_dir().join(COMMIS)
 }
 
-pub fn source_dir(name: &str) -> PathBuf {
-    data_dir().join("sources").join(name)
+pub fn printer_dir(name: &str) -> PathBuf {
+    data_dir().join(PRINTERS).join(name)
 }
 
 /// The one socket whose name doesn't carry the process id: whoever holds it

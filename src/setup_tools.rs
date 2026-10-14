@@ -1,5 +1,5 @@
 //! The part of the setup walk that gives the agent a tool: as an agent of
-//! its own, through one of the person's profiles, or as the person — and,
+//! its own, through one of the chef's profiles, or as the chef — and,
 //! with it, who it trusts there.
 
 use anyhow::Result;
@@ -26,9 +26,9 @@ impl Wizard<'_> {
         }
     }
 
-    /// Basecamp through one of the command line's profiles: the person
+    /// Basecamp through one of the command line's profiles: the chef
     /// picks which, and the command line has already done the logging in.
-    /// A profile that is the person's own gets the agent the tools and no
+    /// A profile that is the chef's own gets the agent the tools and no
     /// ears. One made for the agent — a user of its own in Basecamp — is
     /// the agent's, and then it listens there, the way a person would.
     fn as_a_profile(&mut self, tool: &Tool, agent: &str) -> Result<()> {
@@ -67,7 +67,7 @@ impl Wizard<'_> {
         }
         command.extend(words(&["mcp", "--account", &account.id]));
         // A user that isn't hers acts in someone else's name
-        let acts_as = if its_own { ActsAs::Agent } else { ActsAs::Person };
+        let acts_as = if its_own { ActsAs::Agent } else { ActsAs::Chef };
         if let Err(error) = self.doing.add_server(tool.name, &command, BTreeMap::new(), acts_as) {
             return self.asking.trouble(&format!("Couldn't add the {} server: {error:#}", tool.title));
         }
@@ -79,7 +79,7 @@ impl Wizard<'_> {
         if its_own {
             let anyone = self.anyone_may_assign_work(tool, agent)?;
             let watches = self.doing.can_watch(tool.name);
-            self.doing.add_source(tool.name, setup_basecamp::notifications_source(profile.as_deref(), &account.id, watches, anyone))?;
+            self.doing.add_printer(tool.name, setup_basecamp::notifications_printer(profile.as_deref(), &account.id, watches, anyone))?;
             self.asking.done(&format!("{agent} listens in {} as {who}.", tool.title))?;
             self.say_who_is_heard(tool, agent, trusted, anyone)
         } else {
@@ -102,7 +102,7 @@ impl Wizard<'_> {
     }
 
     /// Connecting an agent is the command line's job, and one that is too old
-    /// to do it is a thing the person can fix in another terminal while setup
+    /// to do it is a thing the chef can fix in another terminal while setup
     /// waits here.
     fn how_to_go_on_as_an_agent(&mut self, tool: &Tool, agent: &str) -> Result<GoOn> {
         while !self.doing.can_connect_agents(tool.name) {
@@ -124,9 +124,9 @@ impl Wizard<'_> {
     }
 
     /// The command line does the whole handshake: it shows a link and a code,
-    /// the person approves which agent this computer acts as, and it keeps
+    /// the chef approves which agent this computer acts as, and it keeps
     /// what comes back under the agent's own profile, in the agent's own
-    /// config folder. Setup never sees a secret, and the person's own login —
+    /// config folder. Setup never sees a secret, and the chef's own login —
     /// and which profile is their default — is never touched.
     fn connect_as_an_agent(&mut self, tool: &Tool, agent: &str) -> Result<()> {
         let profile = profile_name(agent);
@@ -143,7 +143,7 @@ impl Wizard<'_> {
 
         let trusted = self.trusted_people(tool, agent, RecognizedBy::PersonId)?;
         let anyone = self.anyone_may_assign_work(tool, agent)?;
-        self.doing.add_source(tool.name, setup_basecamp::agent_source(&profile, watches, anyone))?;
+        self.doing.add_printer(tool.name, setup_basecamp::agent_printer(&profile, watches, anyone))?;
 
         self.asking.done(&format!("{agent} is in {} under its own profile.", tool.title))?;
         self.say_who_is_heard(tool, agent, trusted, anyone)
@@ -178,7 +178,7 @@ impl Wizard<'_> {
             },
             _ => words(&[tool.program, "mcp"]),
         };
-        if let Err(error) = self.doing.add_server(tool.name, &command, BTreeMap::new(), ActsAs::Person) {
+        if let Err(error) = self.doing.add_server(tool.name, &command, BTreeMap::new(), ActsAs::Chef) {
             return self.asking.trouble(&format!("Couldn't add the {} server: {error:#}", tool.title));
         }
         self.asking.done(&format!("{agent} can use {} as {who}.", tool.title))?;
@@ -191,7 +191,7 @@ impl Wizard<'_> {
 
     /// Who the agent takes direction from: the people who can change how it
     /// behaves and have it do things on the machine it runs on. It is the one
-    /// decision about authority that a person makes, here, and that is looked
+    /// decision about authority that the chef makes, here, and that is looked
     /// up in code ever after. Whoever is running setup is offered first.
     fn trusted_people(&mut self, tool: &Tool, agent: &str, recognized_by: RecognizedBy) -> Result<usize> {
         let mut trusted = 0;
@@ -217,11 +217,11 @@ impl Wizard<'_> {
     /// the difference from a trusted person isn't only what the agent is told.
     fn anyone_may_assign_work(&mut self, tool: &Tool, agent: &str) -> Result<bool> {
         let question = format!("Should anyone in {} be able to assign {agent} work?", tool.title);
-        let hint = format!("People you didn't name can hand {agent} work and nothing more. For them it works only through sandboxed hands, with no shell on this computer, and it won't change how it behaves.");
+        let hint = format!("People you didn't name can hand {agent} work and nothing more. For them it works only through sandboxed commis, with no shell on this computer, and it won't change how it behaves.");
         self.asking.yes(&Question { title: "Work from anyone", question: &question, hint: &hint }, true)
     }
 
-    /// Someone is trusted as whatever the source will report them as. Where
+    /// Someone is trusted as whatever the printer will report them as. Where
     /// that is an id and not their address, the id is looked up now: a person
     /// the tool doesn't know would be trusted on paper and never recognized.
     fn trust(&mut self, tool: &Tool, agent: &str, address: &str, recognized_by: RecognizedBy) -> Result<usize> {

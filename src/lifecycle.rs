@@ -76,7 +76,7 @@ pub fn status() -> Result<()> {
             if let Some(login) = status["github_login"].as_str() {
                 println!("On GitHub as: {login}");
             }
-            println!("Listening on: {}", names(&status["sources"]));
+            println!("Listening on: {}", names(&status["printers"]));
             match status["going_on"].as_array() {
                 Some(turns) => {
                     print_going_on(turns);
@@ -92,19 +92,19 @@ pub fn status() -> Result<()> {
     Ok(())
 }
 
-pub fn poke(source: Option<&str>) -> Result<()> {
-    answered(control::ask(json!({ "command": "poke", "source": source }))?)
+pub fn poke(printer: Option<&str>) -> Result<()> {
+    answered(control::ask(json!({ "command": "poke", "printer": printer }))?)
 }
 
-pub fn tell(thread: &str, message: &str) -> Result<()> {
-    println!("{}", told(thread, message)?);
+pub fn tell(chef_de_partie: &str, message: &str) -> Result<()> {
+    println!("{}", told(chef_de_partie, message)?);
     Ok(())
 }
 
-/// What the thread was told, in her words, for a caller that shows it
+/// What the chef de partie was told, in her words, for a caller that shows it
 /// somewhere other than stdout.
-pub fn told(thread: &str, message: &str) -> Result<String> {
-    said_back(control::ask(json!({ "command": "tell", "thread": thread, "message": message }))?)
+pub fn told(chef_de_partie: &str, message: &str) -> Result<String> {
+    said_back(control::ask(json!({ "command": "tell", "chef_de_partie": chef_de_partie, "message": message }))?)
 }
 
 fn answered(answer: serde_json::Value) -> Result<()> {
@@ -173,12 +173,12 @@ fn print_going_on(turns: &[serde_json::Value]) {
         if let Some(doing) = turn["doing"].as_str() {
             println!("      {doing}");
         }
-        for hand in turn["hands"].as_array().map(Vec::as_slice).unwrap_or_default() {
+        for commis in turn["commis"].as_array().map(Vec::as_slice).unwrap_or_default() {
             println!(
-                "      hand {} in {}, {}",
-                text(&hand["hand"]),
-                text(&hand["project"]),
-                text(&hand["for"])
+                "      commis {} in {}, {}",
+                text(&commis["commis"]),
+                text(&commis["project"]),
+                text(&commis["for"])
             );
         }
     }

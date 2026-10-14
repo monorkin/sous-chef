@@ -1,4 +1,4 @@
-//! The dashboard's tables: Claude accounts and Jev in the left column, what
+//! The dashboard's tables: Claude suppliers and Jev in the left column, what
 //! is going on and what is claimed in the right. Every column gets a width
 //! here, and text too long for its column is cut with an ellipsis rather
 //! than stopped mid-word at the edge.
@@ -8,30 +8,30 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Cell, Row, Table};
 
-use crate::dash_data::{Account, Limit, Now};
+use crate::dash_data::{Limit, Now, Supplier};
 
 const SPACING: u16 = 1;
 const PERCENT: u16 = 7;
 const RESETS: u16 = 7;
-const THREAD: u16 = 18;
+const CHEF_DE_PARTIE: u16 = 18;
 const RUNNING: u16 = 7;
 const WAITING: u16 = 7;
-const HAND: u16 = 17;
+const COMMIS: u16 = 17;
 const WORKTREE: u16 = 14;
-const HAND_RUNNING: u16 = 8;
+const COMMIS_RUNNING: u16 = 10;
 
-/// Room for the Jev table beside the accounts.
+/// Room for the Jev table beside the suppliers.
 pub const JEV_WIDTH: u16 = 36;
 const LONGEST_NAME: u16 = 24;
 
-pub fn accounts(accounts: &[Account], width: u16) -> Table<'static> {
+pub fn suppliers(suppliers: &[Supplier], width: u16) -> Table<'static> {
     let name_width = width.saturating_sub(3 * (PERCENT + RESETS) + 6 * SPACING).clamp(4, LONGEST_NAME);
-    let scoped = accounts.iter().find_map(|it| it.limits[2].as_ref()).map(|it| it.name.clone()).unwrap_or_else(|| "Fable".to_string());
-    let header = ["Account".to_string(), "Session".to_string(), "resets".to_string(), "Week".to_string(), "resets".to_string(), scoped, "resets".to_string()];
+    let scoped = suppliers.iter().find_map(|it| it.limits[2].as_ref()).map(|it| it.name.clone()).unwrap_or_else(|| "Fable".to_string());
+    let header = ["Supplier".to_string(), "Session".to_string(), "resets".to_string(), "Week".to_string(), "resets".to_string(), scoped, "resets".to_string()];
 
-    let rows = accounts.iter().map(|account| {
-        let mut cells = vec![name_cell(account, name_width)];
-        for limit in &account.limits {
+    let rows = suppliers.iter().map(|supplier| {
+        let mut cells = vec![name_cell(supplier, name_width)];
+        for limit in &supplier.limits {
             cells.extend(limit_cells(limit.as_ref()));
         }
         Row::new(cells)
@@ -48,9 +48,9 @@ pub fn jev(rows: &[[String; 2]]) -> Table<'static> {
 }
 
 pub fn going_on(now: &Now, width: u16) -> Table<'static> {
-    let fixed = THREAD + RUNNING + WAITING + HAND + WORKTREE + HAND_RUNNING + 6 * SPACING;
+    let fixed = CHEF_DE_PARTIE + RUNNING + WAITING + COMMIS + WORKTREE + COMMIS_RUNNING + 6 * SPACING;
     let title = width.saturating_sub(fixed).max(8);
-    let widths = [THREAD, RUNNING, WAITING, title, HAND, WORKTREE, HAND_RUNNING];
+    let widths = [CHEF_DE_PARTIE, RUNNING, WAITING, title, COMMIS, WORKTREE, COMMIS_RUNNING];
 
     let rows: Vec<Row> = if now.going_on.is_empty() {
         vec![Row::new(["Nothing going on right now."])]
@@ -61,31 +61,31 @@ pub fn going_on(now: &Now, width: u16) -> Table<'static> {
             .collect()
     };
     Table::new(rows, widths.map(Constraint::Length))
-        .header(bold_row(["Thread", "For", "Waiting", "Title", "Hand", "Worktree", "Hand for"].map(String::from)))
+        .header(bold_row(["Chef de partie", "For", "Waiting", "Title", "Commis", "Worktree", "Commis for"].map(String::from)))
         .block(Block::new().title(heading("Going on now")))
         .column_spacing(SPACING)
 }
 
 pub fn claimed(now: &Now, width: u16) -> Table<'static> {
-    let title = width.saturating_sub(THREAD + SPACING).max(8);
+    let title = width.saturating_sub(CHEF_DE_PARTIE + SPACING).max(8);
     let rows: Vec<Row> = if now.claimed.is_empty() {
         vec![Row::new(["Nothing claimed."])]
     } else {
         now.claimed
             .iter()
-            .map(|[thread, doing]| Row::new([Cell::from(ellipsized(thread, THREAD as usize)).style(thread_style(thread)), Cell::from(ellipsized(doing, title as usize))]))
+            .map(|[chef_de_partie, doing]| Row::new([Cell::from(ellipsized(chef_de_partie, CHEF_DE_PARTIE as usize)).style(chef_de_partie_style(chef_de_partie)), Cell::from(ellipsized(doing, title as usize))]))
             .collect()
     };
-    Table::new(rows, [Constraint::Length(THREAD), Constraint::Length(title)])
-        .header(bold_row(["Thread", "Title"].map(String::from)))
+    Table::new(rows, [Constraint::Length(CHEF_DE_PARTIE), Constraint::Length(title)])
+        .header(bold_row(["Chef de partie", "Title"].map(String::from)))
         .block(Block::new().title(heading("Claimed, between turns")))
         .column_spacing(SPACING)
 }
 
 /// How each column of "Going on now" is coloured, by what is in it.
-const GOING_ON_STYLES: [fn(&str) -> Style; 7] = [thread_style, age_style, waiting_style, plain_style, hand_style, worktree_style, age_style];
+const GOING_ON_STYLES: [fn(&str) -> Style; 7] = [chef_de_partie_style, age_style, waiting_style, plain_style, commis_style, worktree_style, age_style];
 
-fn thread_style(_: &str) -> Style {
+fn chef_de_partie_style(_: &str) -> Style {
     Style::new().fg(Color::Cyan)
 }
 
@@ -111,7 +111,7 @@ fn plain_style(_: &str) -> Style {
     Style::new()
 }
 
-fn hand_style(_: &str) -> Style {
+fn commis_style(_: &str) -> Style {
     Style::new().add_modifier(Modifier::DIM)
 }
 
@@ -141,9 +141,9 @@ fn minutes_in(span: &str) -> Option<u64> {
     Some(minutes)
 }
 
-fn name_cell(account: &Account, width: u16) -> Cell<'static> {
-    let name = ellipsized(&account.name, width.saturating_sub(2) as usize);
-    if account.in_use {
+fn name_cell(supplier: &Supplier, width: u16) -> Cell<'static> {
+    let name = ellipsized(&supplier.name, width.saturating_sub(2) as usize);
+    if supplier.in_use {
         Cell::from(Line::from(vec![Span::raw("● "), Span::raw(name)])).style(Style::new().fg(Color::Green).add_modifier(Modifier::BOLD))
     } else {
         Cell::from(format!("  {name}"))

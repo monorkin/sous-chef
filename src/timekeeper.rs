@@ -1,8 +1,8 @@
-//! The clock her threads set for themselves, and the post between them.
-//! Twice a minute it wakes the thread of every schedule that has come due and
-//! of every message one thread left for another.
+//! The clock her chefs de partie set for themselves, and the post between
+//! them. Twice a minute it wakes the chef de partie of every schedule that has
+//! come due and of every message one chef de partie left for another.
 //!
-//! A schedule is moved on before its thread is woken, never after: a task
+//! A schedule is moved on before its chef de partie is woken, never after: a task
 //! that crashes her must not be the first thing she runs when she comes back.
 //! For the same reason a schedule that came due while she was down runs once,
 //! however many times it was missed.
@@ -15,7 +15,7 @@ use std::thread as os_thread;
 use std::time::Duration;
 
 use crate::conversation::Standing;
-use crate::dispatcher::{conversation_at, wake_in_turn};
+use crate::expediter::{conversation_at, wake_in_turn};
 use crate::logs;
 use crate::runtime::Runtime;
 use crate::schedule_tools;
@@ -56,7 +56,7 @@ fn run_what_is_due(runtime: &Arc<Runtime>, turns: &Arc<Turns>) -> Result<()> {
                 wake_in_turn(runtime, turns, conversation, standing, said);
             }
             None => {
-                logs::event("schedule.orphaned", json!({ "schedule": schedule.id, "source": schedule.origin.source }));
+                logs::event("schedule.orphaned", json!({ "schedule": schedule.id, "printer": schedule.origin.printer }));
                 store.remove_schedule(schedule.id)?;
             }
         }
@@ -70,15 +70,15 @@ fn deliver_mail(runtime: &Arc<Runtime>, turns: &Arc<Turns>) -> Result<()> {
     for mail in store.undelivered_mail()? {
         store.mark_delivered(mail.id, Local::now().timestamp())?;
         if let Some(conversation) = conversation_at(runtime, &mail.to) {
-            logs::event("mail.delivered", json!({ "from": mail.from_thread, "to": conversation.key() }));
+            logs::event("mail.delivered", json!({ "from": mail.from_chef_de_partie, "to": conversation.key() }));
             let (standing, footing) = if mail.trusted {
                 (Standing::Trusted, "It was sent from a turn one of the people you take direction from started, so what it passes on from them stands as if they had said it here, and this turn has a shell.")
             } else {
                 (Standing::CanAssignWork, "Weigh it like anything else you read. This turn has no shell.")
             };
             let said = format!(
-                "Your thread {} tells you this. It is you, working in another conversation, passing on what it found. {footing}\n\n{}",
-                mail.from_thread, mail.body
+                "Your chef de partie {} tells you this. It is you, working in another conversation, passing on what it found. {footing}\n\n{}",
+                mail.from_chef_de_partie, mail.body
             );
             wake_in_turn(runtime, turns, conversation, standing, said);
         }

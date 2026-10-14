@@ -1,7 +1,7 @@
-//! Her own GitHub login, kept apart from the person's. `gh` and git both
+//! Her own GitHub login, kept apart from the chef's. `gh` and git both
 //! take their config from the environment, so a turn of hers runs them with
-//! her folder and her gitconfig, and never reads the person's — what she
-//! pushes and opens is hers by default, and using the person's login is the
+//! her folder and her gitconfig, and never reads the chef's — what she
+//! pushes and opens is hers by default, and using the chef's login is the
 //! exception they make by saying so.
 
 use anyhow::{Context, Result, bail};
@@ -26,7 +26,7 @@ pub fn is_set_up() -> bool {
 }
 
 /// `gh auth login` in her own folder, at this terminal: the one time a
-/// person is needed. Answers with the login gh wrote down.
+/// chef is needed. Answers with the login gh wrote down.
 pub fn log_in() -> Result<String> {
     let home = config_dir();
     paths::make_private_dir(&home)?;
@@ -80,7 +80,7 @@ fn email_in(gitconfig: &str) -> Option<String> {
 }
 
 /// What a turn's git and gh are told, once she has a login of her own.
-/// Nothing until then: a turn without these runs them as the person, which
+/// Nothing until then: a turn without these runs them as the chef, which
 /// is what the exception in her instructions is about.
 pub fn environment() -> Vec<(&'static str, PathBuf)> {
     environment_in(&paths::tools_config_home())
@@ -103,7 +103,7 @@ mod tests {
         let tools = std::env::temp_dir().join(format!("sous-chef-github-{}", std::process::id()));
         let _ = fs::remove_dir_all(&tools);
         fs::create_dir_all(&tools).unwrap();
-        assert!(environment_in(&tools).is_empty(), "without a login of her own, a turn runs them as the person");
+        assert!(environment_in(&tools).is_empty(), "without a login of her own, a turn runs them as the chef");
 
         write_identity(&tools.join("gitconfig"), "Botten", "botten@example.com").unwrap();
         let written = fs::read_to_string(tools.join("gitconfig")).unwrap();

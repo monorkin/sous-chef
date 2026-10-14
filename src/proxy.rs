@@ -1,9 +1,9 @@
-//! The only ways out of a hand's sandbox: an HTTP CONNECT proxy on a unix
+//! The only ways out of a commis's sandbox: an HTTP CONNECT proxy on a unix
 //! socket that tunnels to an allowlist of hosts and refuses everything else,
 //! and bridges to the ports on this machine's loopback it was granted. The
 //! sandbox has no network of its own, so what isn't allowed here doesn't
-//! exist for the hand. Refusals are logged — they're the record of what a
-//! hand tried to reach.
+//! exist for the commis. Refusals are logged — they're the record of what a
+//! commis tried to reach.
 
 use anyhow::{Context, Result};
 use serde_json::json;
@@ -21,8 +21,8 @@ use crate::paths;
 pub const CLAUDE_API: &str = "api.anthropic.com:443";
 
 /// Where the package managers fetch from: public, read-only, and no login
-/// involved, so a hand can be let at them from any turn. What a day of
-/// refusals showed hands asking for, plus each manager's other hosts.
+/// involved, so a commis can be let at them from any turn. What a day of
+/// refusals showed commis asking for, plus each manager's other hosts.
 pub const REGISTRIES: [&str; 11] = [
     "rubygems.org:443",
     "index.rubygems.org:443",
@@ -79,8 +79,8 @@ impl Drop for Proxy {
 /// One port on this machine's loopback, reached through a unix socket the
 /// sandbox binds in. It runs inside sous-chef rather than as a socat of its own:
 /// a child told to die with its parent dies with the thread that started
-/// it, and start_hand's thread is gone the moment it answers — taking every
-/// hand's database with it before the hand had begun.
+/// it, and call_commis's thread is gone the moment it answers — taking every
+/// commis's database with it before the commis had begun.
 pub struct Bridge {
     socket: PathBuf,
 }

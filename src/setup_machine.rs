@@ -6,9 +6,9 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::process::{Command, Stdio};
 
-use crate::config::{self, Config, Source};
+use crate::config::{self, Config, Printer};
 use crate::github;
-use crate::judge::Judge;
+use crate::taster::Taster;
 use crate::mcp_cli;
 use crate::paths;
 use crate::secrets::{self, Kept};
@@ -40,7 +40,7 @@ impl Doing for Machine {
 
     fn jev_key_works(&mut self, key: &str) -> bool {
         let url = Config::load().ok().and_then(|it| it.jev_url);
-        Judge::jev_key_works(key, url.as_deref())
+        Taster::jev_key_works(key, url.as_deref())
     }
 
     fn keep_secret(&mut self, name: &str, value: &str) -> Result<Kept> {
@@ -104,7 +104,7 @@ impl Doing for Machine {
             .collect()
     }
 
-    /// Asked as the person running setup, who can see people; an agent
+    /// Asked as the chef running setup, who can see people; an agent
     /// can't. Every account of every profile they have is looked through:
     /// which account the agent belongs to is the command line's to know, the
     /// default profile may not be the one that can see it, and an id is only
@@ -166,7 +166,7 @@ impl Doing for Machine {
     }
 
     /// It runs with the agent's own config folder, so the profile it creates
-    /// — and the default it may become — are the agent's and not the person's.
+    /// — and the default it may become — are the agent's and not the chef's.
     fn connect_agent(&mut self, tool: &str, profile: &str, agent: &str) -> Result<()> {
         std::fs::create_dir_all(paths::tools_config_home())?;
         let status = Command::new(tool)
@@ -195,13 +195,13 @@ impl Doing for Machine {
         let mut settings = mcp_cli::settings_for(command)?;
         settings.env = env;
         settings.prose = prose_of(name);
-        settings.trusted_only = acts_as == ActsAs::Person;
+        settings.trusted_only = acts_as == ActsAs::Chef;
         mcp_cli::register(name, settings)
     }
 
-    fn add_source(&mut self, name: &str, source: Source) -> Result<()> {
+    fn add_printer(&mut self, name: &str, printer: Printer) -> Result<()> {
         let mut config = Config::load()?;
-        config.sources.insert(name.to_string(), source);
+        config.printers.insert(name.to_string(), printer);
         config.save()
     }
 

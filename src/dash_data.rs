@@ -1,5 +1,5 @@
-//! What `sous-chef dash` shows, gathered in one place: her Claude accounts and
-//! Jev's bill, what is going on now, the end of her log, and her memories.
+//! What `sous-chef dash` shows, gathered in one place: her Claude suppliers and
+//! Jev's bill, what is going on now, the end of her log, and her recipes.
 //! Gathering asks the running sous-chef, ax, katami and the log; turning their
 //! answers into rows touches none of them, and that is the part the tests
 //! cover.
@@ -14,7 +14,7 @@ use std::path::Path;
 
 use crate::config;
 use crate::control;
-use crate::judge::JEV_DOLLARS_PER_REQUEST_ESTIMATE;
+use crate::taster::JEV_DOLLARS_PER_REQUEST_ESTIMATE;
 use crate::lifecycle::text;
 use crate::logs::{self, short_id};
 use crate::paths;
@@ -24,23 +24,23 @@ const LOG_LINES: usize = 500;
 
 /// Everything on the dashboard at one moment.
 pub struct Snapshot {
-    pub accounts: Vec<Account>,
-    /// Why there are no accounts to show, when ax couldn't say.
-    pub accounts_unknown: Option<String>,
+    pub suppliers: Vec<Supplier>,
+    /// Why there are no suppliers to show, when ax couldn't say.
+    pub suppliers_unknown: Option<String>,
     /// Jev's requests and what they cost, as rows, when it is set up.
     pub jev: Option<Vec<[String; 2]>>,
     /// The newest lines of the log, as `sous-chef log` colours them.
     pub log: Vec<String>,
     /// Or why it can't be had: she isn't running, or didn't answer.
     pub now: Result<Now, String>,
-    /// Every memory, archived ones too, the newest first; or why they
+    /// Every recipe, archived ones too, the newest first; or why they
     /// couldn't be read.
-    pub memories: Result<Vec<MemoryRow>, String>,
+    pub recipes: Result<Vec<RecipeRow>, String>,
 }
 
-/// One memory as the dashboard lists and shows it.
+/// One recipe as the dashboard lists and shows it.
 #[derive(Debug, PartialEq, Clone)]
-pub struct MemoryRow {
+pub struct RecipeRow {
     pub id: String,
     pub kind: String,
     pub entity: Option<String>,
@@ -53,9 +53,9 @@ pub struct MemoryRow {
     pub updated: String,
 }
 
-/// One Claude account and how full its limits are.
+/// One Claude supplier and how full its limits are.
 #[derive(Debug, PartialEq)]
-pub struct Account {
+pub struct Supplier {
     /// Its alias, or its email up to the @.
     pub name: String,
     pub in_use: bool,
@@ -75,27 +75,27 @@ pub struct Limit {
 /// What `sous-chef status` knows, as rows.
 #[derive(Default, Debug, PartialEq)]
 pub struct Now {
-    /// Thread, running for, messages waiting, title, hand, the hand's
-    /// worktree and how long it has run: one row per hand, the thread's
-    /// columns only on its first.
+    /// Chef de partie, running for, messages waiting, title, commis, the
+    /// commis's worktree and how long it has run: one row per commis, the
+    /// chef de partie's columns only on its first.
     pub going_on: Vec<[String; 7]>,
-    /// Thread and what it's doing.
+    /// Chef de partie and what it's doing.
     pub claimed: Vec<[String; 2]>,
-    /// Every thread that can be told something, the busy ones first.
-    pub threads: Vec<String>,
-    /// What is known about each of those threads, by its full name.
-    pub about: HashMap<String, ThreadNow>,
+    /// Every chef de partie that can be told something, the busy ones first.
+    pub chefs_de_partie: Vec<String>,
+    /// What is known about each of those chefs de partie, by its full name.
+    pub about: HashMap<String, ChefDePartieNow>,
 }
 
-/// One thread's part of what is going on, for the head of its chat.
+/// One chef de partie's part of what is going on, for the head of its chat.
 #[derive(Default, Debug, PartialEq, Clone)]
-pub struct ThreadNow {
+pub struct ChefDePartieNow {
     pub title: String,
     /// How long its turn has run; none between turns.
     pub turn_for: Option<String>,
     pub waiting: String,
-    /// Each hand at work for it: the hand, its worktree, and how long.
-    pub hands: Vec<[String; 3]>,
+    /// Each commis at work for it: the commis, its worktree, and how long.
+    pub commis: Vec<[String; 3]>,
 }
 
 /// Asked once: the key lives in the keyring, which isn't something to knock
@@ -105,30 +105,30 @@ pub fn jev_is_set_up() -> bool {
 }
 
 pub fn gather(with_jev: bool) -> Snapshot {
-    let (accounts, accounts_unknown) = match ax::usage::of_every_account() {
-        Ok(reports) => (accounts_of(&reports, ax::clock::now_seconds()), None),
+    let (suppliers, suppliers_unknown) = match ax::usage::of_every_account() {
+        Ok(reports) => (suppliers_of(&reports, ax::clock::now_seconds()), None),
         Err(error) => (Vec::new(), Some(format!("{error:#}"))),
     };
 
     Snapshot {
-        accounts,
-        accounts_unknown,
+        suppliers,
+        suppliers_unknown,
         jev: with_jev.then(|| jev_rows(&JevRequests::in_log(&fs::read_to_string(paths::log_file()).unwrap_or_default(), &a_day_ago()))),
         log: logs::newest_styled(LOG_LINES),
         now: control::ask(json!({ "command": "status" })).map(|it| now_of(&it["status"])).map_err(|error| format!("{error}.")),
-        memories: memories().map_err(|error| format!("Her memories couldn't be read: {error:#}.")),
+        recipes: recipes().map_err(|error| format!("Her recipes couldn't be read: {error:#}.")),
     }
 }
 
-fn memories() -> Result<Vec<MemoryRow>> {
+fn recipes() -> Result<Vec<RecipeRow>> {
     let memory = Memory::open(&katami::paths::memory_dir())?;
     let listing = Listing { filter: ListFilter::All, kinds: Vec::new(), order: Vec::new() };
-    Ok(memory.overview(&listing)?.iter().map(memory_row).collect())
+    Ok(memory.overview(&listing)?.iter().map(recipe_row).collect())
 }
 
-fn memory_row(row: &OverviewRow) -> MemoryRow {
+fn recipe_row(row: &OverviewRow) -> RecipeRow {
     let stored = &row.stored;
-    MemoryRow {
+    RecipeRow {
         id: stored.id.to_string(),
         kind: stored.kind.to_string(),
         entity: stored.entity.clone(),
@@ -157,8 +157,8 @@ impl JevRequests {
     /// skipped.
     fn in_log(log: &str, since: &str) -> JevRequests {
         let mut requests = JevRequests::default();
-        let asked = log.lines().filter(|it| it.contains("judge.jev_asked")).filter_map(|it| serde_json::from_str::<Value>(it).ok());
-        for entry in asked.filter(|it| it["event"] == "judge.jev_asked") {
+        let asked = log.lines().filter(|it| it.contains("taster.jev_asked")).filter_map(|it| serde_json::from_str::<Value>(it).ok());
+        for entry in asked.filter(|it| it["event"] == "taster.jev_asked") {
             requests.ever += 1;
             if entry["at"].as_str().unwrap_or_default() >= since {
                 requests.since += 1;
@@ -168,8 +168,8 @@ impl JevRequests {
     }
 }
 
-/// Each account's limits, in the order and under the names ax gives them.
-fn accounts_of(reports: &[Report], now: i64) -> Vec<Account> {
+/// Each supplier's limits, in the order and under the names ax gives them.
+fn suppliers_of(reports: &[Report], now: i64) -> Vec<Supplier> {
     reports
         .iter()
         .map(|report| {
@@ -188,7 +188,7 @@ fn accounts_of(reports: &[Report], now: i64) -> Vec<Account> {
                     });
                 }
             }
-            Account { name: name_of(&report.account), in_use: report.active, limits }
+            Supplier { name: name_of(&report.account), in_use: report.active, limits }
         })
         .collect()
 }
@@ -217,33 +217,33 @@ fn dollars(requests: u64) -> String {
 fn now_of(status: &Value) -> Now {
     let mut now = Now::default();
     for turn in listed(&status["going_on"]) {
-        let thread = text(&turn["conversation"]).to_string();
-        let turn_columns = [short_id(&thread), text(&turn["for"]).to_string(), waiting(&turn["waiting"]), text(&turn["doing"]).to_string()];
-        let hands = listed(&turn["hands"]);
-        if hands.is_empty() {
-            let [thread, running, waiting, title] = turn_columns.clone();
-            now.going_on.push([thread, running, waiting, title, String::new(), String::new(), String::new()]);
+        let chef_de_partie = text(&turn["conversation"]).to_string();
+        let turn_columns = [short_id(&chef_de_partie), text(&turn["for"]).to_string(), waiting(&turn["waiting"]), text(&turn["doing"]).to_string()];
+        let brigade = listed(&turn["commis"]);
+        if brigade.is_empty() {
+            let [chef_de_partie, running, waiting, title] = turn_columns.clone();
+            now.going_on.push([chef_de_partie, running, waiting, title, String::new(), String::new(), String::new()]);
         }
-        let mut about = ThreadNow {
+        let mut about = ChefDePartieNow {
             title: text(&turn["doing"]).to_string(),
             turn_for: turn["for"].as_str().map(String::from),
             waiting: waiting(&turn["waiting"]),
-            hands: Vec::new(),
+            commis: Vec::new(),
         };
-        for (index, hand) in hands.iter().enumerate() {
+        for (index, commis) in brigade.iter().enumerate() {
             let [short, running, waiting, title] = if index == 0 { turn_columns.clone() } else { Default::default() };
-            let worktree = Path::new(text(&hand["project"])).file_name().map(|it| it.to_string_lossy().into_owned()).unwrap_or_default();
-            about.hands.push([text(&hand["hand"]).to_string(), worktree.clone(), text(&hand["for"]).to_string()]);
-            now.going_on.push([short, running, waiting, title, text(&hand["hand"]).to_string(), worktree, text(&hand["for"]).to_string()]);
+            let worktree = Path::new(text(&commis["project"])).file_name().map(|it| it.to_string_lossy().into_owned()).unwrap_or_default();
+            about.commis.push([text(&commis["commis"]).to_string(), worktree.clone(), text(&commis["for"]).to_string()]);
+            now.going_on.push([short, running, waiting, title, text(&commis["commis"]).to_string(), worktree, text(&commis["for"]).to_string()]);
         }
-        now.about.insert(thread.clone(), about);
-        now.threads.push(thread);
+        now.about.insert(chef_de_partie.clone(), about);
+        now.chefs_de_partie.push(chef_de_partie);
     }
     for work in listed(&status["board"]) {
-        let thread = text(&work["conversation"]).to_string();
-        now.claimed.push([short_id(&thread), text(&work["doing"]).to_string()]);
-        now.about.insert(thread.clone(), ThreadNow { title: text(&work["doing"]).to_string(), ..ThreadNow::default() });
-        now.threads.push(thread);
+        let chef_de_partie = text(&work["conversation"]).to_string();
+        now.claimed.push([short_id(&chef_de_partie), text(&work["doing"]).to_string()]);
+        now.about.insert(chef_de_partie.clone(), ChefDePartieNow { title: text(&work["doing"]).to_string(), ..ChefDePartieNow::default() });
+        now.chefs_de_partie.push(chef_de_partie);
     }
     now
 }
@@ -266,10 +266,10 @@ mod tests {
     #[test]
     fn jev_requests_are_counted_from_a_moment_on_and_over_the_whole_log() {
         let log = [
-            r#"{"at":"2026-09-26T09:00:00Z","event":"judge.jev_asked","details":{"bytes":10}}"#,
-            r#"{"at":"2026-09-27T09:00:00Z","event":"judge.jev_asked","details":{"bytes":10}}"#,
-            r#"{"at":"2026-09-27T09:00:01Z","event":"thread.woken","details":{"said":"judge.jev_asked"}}"#,
-            "judge.jev_asked, not json",
+            r#"{"at":"2026-09-26T09:00:00Z","event":"taster.jev_asked","details":{"bytes":10}}"#,
+            r#"{"at":"2026-09-27T09:00:00Z","event":"taster.jev_asked","details":{"bytes":10}}"#,
+            r#"{"at":"2026-09-27T09:00:01Z","event":"chef_de_partie.woken","details":{"said":"taster.jev_asked"}}"#,
+            "taster.jev_asked, not json",
         ]
         .join("\n");
 
@@ -283,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn accounts_show_each_limit_and_which_one_is_in_use() {
+    fn suppliers_show_each_limit_and_which_one_is_in_use() {
         let account = |email: &str| serde_json::from_value(json!({ "number": 1, "email": email, "added": "2026-09-01" })).unwrap();
         let usage = serde_json::from_value(json!({
             "five_hour": { "utilization": 40.0, "resets_at": "2026-09-27T12:00:00Z" },
@@ -298,10 +298,10 @@ mod tests {
         ];
         let now = ax::clock::epoch_seconds_of("2026-09-27T10:20:00Z").unwrap();
 
-        let accounts = accounts_of(&reports, now);
+        let suppliers = suppliers_of(&reports, now);
         assert_eq!(
-            accounts[0],
-            Account {
+            suppliers[0],
+            Supplier {
                 name: "marta".to_string(),
                 in_use: true,
                 limits: [
@@ -311,27 +311,27 @@ mod tests {
                 ],
             }
         );
-        assert_eq!(accounts[1], Account { name: "Work".to_string(), in_use: false, limits: [None, None, None] });
+        assert_eq!(suppliers[1], Supplier { name: "Work".to_string(), in_use: false, limits: [None, None, None] });
     }
 
     #[test]
-    fn status_becomes_rows_with_hands_under_their_thread() {
+    fn status_becomes_rows_with_commis_under_their_chef_de_partie() {
         let status = json!({
             "going_on": [{
                 "conversation": "basecamp-card-1",
                 "for": "14m",
                 "waiting": 3,
                 "doing": "Fixing the login",
-                "hands": [
-                    { "hand": "h18d9", "project": "/srv/worktrees/login-fix", "for": "13m" },
-                    { "hand": "h18da", "project": "/srv/worktrees/login-docs", "for": "2m" },
+                "commis": [
+                    { "commis": "h18d9", "project": "/srv/worktrees/login-fix", "for": "13m" },
+                    { "commis": "h18da", "project": "/srv/worktrees/login-docs", "for": "2m" },
                 ],
             }, {
                 "conversation": "basecamp-card-3",
                 "for": "1m",
                 "waiting": 0,
                 "doing": null,
-                "hands": [],
+                "commis": [],
             }],
             "board": [{ "conversation": "basecamp-card-2", "doing": "Waiting on review" }],
         });
@@ -347,17 +347,17 @@ mod tests {
             ]
         );
         assert_eq!(now.claimed, vec![["basecamp-card-2".to_string(), "Waiting on review".to_string()]]);
-        assert_eq!(now.threads, ["basecamp-card-1", "basecamp-card-3", "basecamp-card-2"]);
+        assert_eq!(now.chefs_de_partie, ["basecamp-card-1", "basecamp-card-3", "basecamp-card-2"]);
         assert_eq!(
             now.about["basecamp-card-1"],
-            ThreadNow {
+            ChefDePartieNow {
                 title: "Fixing the login".to_string(),
                 turn_for: Some("14m".to_string()),
                 waiting: "3".to_string(),
-                hands: vec![["h18d9", "login-fix", "13m"].map(String::from), ["h18da", "login-docs", "2m"].map(String::from)],
+                commis: vec![["h18d9", "login-fix", "13m"].map(String::from), ["h18da", "login-docs", "2m"].map(String::from)],
             }
         );
-        assert_eq!(now.about["basecamp-card-2"], ThreadNow { title: "Waiting on review".to_string(), ..ThreadNow::default() }, "a thread between turns has no turn running");
+        assert_eq!(now.about["basecamp-card-2"], ChefDePartieNow { title: "Waiting on review".to_string(), ..ChefDePartieNow::default() }, "a chef de partie between turns has no turn running");
         assert_eq!(now_of(&json!({})), Now::default());
     }
 }

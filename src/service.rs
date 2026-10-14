@@ -1,13 +1,13 @@
 //! sous-chef as a systemd user service, for the people who want it to come
 //! back after a reboot without being asked.
 //!
-//! It is a user service, not a system one: it runs as the person the agent
+//! It is a user service, not a system one: it runs as the chef the agent
 //! works for, with their Claude login and their keyring. The unit carries the
 //! PATH setup was run with, because a user service starts with next to none
 //! and sous-chef needs claude, bwrap, socat and whatever the MCP servers are.
 //! `KillMode=control-group` is systemd's version of what `sous-chef stop`
 //! does itself: nothing it started outlives it. It takes a while to go — the
-//! threads it stopped mid-turn are compacted first — so systemd waits.
+//! chefs de partie it stopped mid-turn are compacted first — so systemd waits.
 
 use anyhow::{Context, Result, bail};
 use std::path::{Path, PathBuf};
@@ -167,7 +167,7 @@ mod tests {
         assert!(unit.contains("ExecStart=/opt/sous-chef/bin/sous-chef run\n"));
         assert!(unit.contains("Environment=PATH=/opt/tools/bin:/usr/bin\n"));
         assert!(unit.contains("KillMode=control-group\n"));
-        assert!(unit.contains("TimeoutStopSec=5min\n"), "stopping waits for the threads it stopped to be compacted");
+        assert!(unit.contains("TimeoutStopSec=5min\n"), "stopping waits for the chefs de partie it stopped to be compacted");
         assert!(unit.contains("WantedBy=default.target\n"));
         assert_eq!(search_path_of(&unit).as_deref(), Some("/opt/tools/bin:/usr/bin"), "a unit rewritten later keeps the PATH it was set up with");
     }

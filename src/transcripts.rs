@@ -1,11 +1,12 @@
-//! What was said in a thread or a hand, read back: `sous-chef transcript`.
+//! What was said in a chef de partie or a commis, read back: `sous-chef
+//! transcript`.
 //!
 //! Claude Code writes every session down as it goes, one JSON line per
-//! turn, under the config folder the session ran with. A thread's lives
-//! with the login she works as. A hand's would die with its profile, so it
-//! is moved into her data folder before the profile goes, and its reviews
-//! with it. Reading either is the same: the person's words, hers, and each
-//! tool she reached for, with the long parts cut short.
+//! turn, under the config folder the session ran with. A chef de partie's
+//! lives with the login she works as. A commis's would die with its profile,
+//! so it is moved into her data folder before the profile goes, and its pass
+//! checks with it. Reading either is the same: the chef's words, hers, and
+//! each tool she reached for, with the long parts cut short.
 
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
@@ -18,23 +19,24 @@ use crate::paths;
 const LONGEST_SHOWN: usize = 400;
 
 /// Moves every transcript under a session's Claude config folder into her
-/// own folder for that hand. A review is `review-*.jsonl` there, so it sits
-/// next to the work it judged.
-pub fn keep(profile: &Path, hand: &str, as_review: bool) {
-    let kept = paths::hands_dir().join(hand);
+/// own folder for that commis. A pass is `pass-*.jsonl` there, so it sits
+/// next to the work it checked.
+pub fn keep(profile: &Path, commis: &str, as_pass: bool) {
+    let kept = paths::commis_dir().join(commis);
     for transcript in transcripts_under(&profile.join("projects")) {
         let name = transcript.file_name().unwrap_or_default().to_string_lossy();
-        let name = if as_review { format!("review-{name}") } else { name.into_owned() };
+        let name = if as_pass { format!("pass-{name}") } else { name.into_owned() };
         if paths::make_private_dir(&kept).is_ok() {
             let _ = fs::rename(&transcript, kept.join(&name)).or_else(|_| fs::copy(&transcript, kept.join(&name)).map(|_| ()));
         }
     }
 }
 
-/// A thread's transcripts: Claude Code keeps a folder's under the folder's
-/// absolute path with everything but letters and digits turned into dashes.
-pub fn of_thread(thread: &str) -> PathBuf {
-    let folder: String = paths::thread_dir(thread)
+/// A chef de partie's transcripts: Claude Code keeps a folder's under the
+/// folder's absolute path with everything but letters and digits turned into
+/// dashes.
+pub fn of_chef_de_partie(chef_de_partie: &str) -> PathBuf {
+    let folder: String = paths::chef_de_partie_dir(chef_de_partie)
         .to_string_lossy()
         .chars()
         .map(|it| if it.is_ascii_alphanumeric() { it } else { '-' })
@@ -43,26 +45,27 @@ pub fn of_thread(thread: &str) -> PathBuf {
 }
 
 pub fn list() -> Result<()> {
-    let threads = names_in(&paths::data_dir().join("threads"));
-    let hands = names_in(&paths::hands_dir());
-    if threads.is_empty() && hands.is_empty() {
-        println!("Nothing yet. Threads and hands leave their transcripts here as they work.");
+    let chefs_de_partie = names_in(&paths::data_dir().join("chefs_de_partie"));
+    let commis = names_in(&paths::commis_dir());
+    if chefs_de_partie.is_empty() && commis.is_empty() {
+        println!("Nothing yet. Chefs de partie and commis leave their transcripts here as they work.");
         return Ok(());
     }
 
-    if !threads.is_empty() {
-        println!("Threads:");
-        for thread in threads {
-            let transcripts = transcripts_under(&of_thread(&thread));
-            println!("  {thread}  ({} transcript{})", transcripts.len(), if transcripts.len() == 1 { "" } else { "s" });
+    if !chefs_de_partie.is_empty() {
+        println!("Chefs de partie:");
+        for chef_de_partie in chefs_de_partie {
+            let transcripts = transcripts_under(&of_chef_de_partie(&chef_de_partie));
+            println!("  {chef_de_partie}  ({} transcript{})", transcripts.len(), if transcripts.len() == 1 { "" } else { "s" });
         }
     }
-    if !hands.is_empty() {
-        println!("Hands:");
-        for hand in hands {
-            let files = transcripts_under(&paths::hands_dir().join(&hand));
-            let reviews = files.iter().filter(|it| it.file_name().unwrap_or_default().to_string_lossy().starts_with("review-")).count();
-            println!("  {hand}  ({} round{}, {reviews} review{})", files.len() - reviews, if files.len() - reviews == 1 { "" } else { "s" }, if reviews == 1 { "" } else { "s" });
+    if !commis.is_empty() {
+        println!("Commis:");
+        for commis in commis {
+            let files = transcripts_under(&paths::commis_dir().join(&commis));
+            // Commis let go before the kitchen kept what the pass said as review-
+            let passes = files.iter().filter(|it| ["pass-", "review-"].iter().any(|prefix| it.file_name().unwrap_or_default().to_string_lossy().starts_with(prefix))).count();
+            println!("  {commis}  ({} round{}, {passes} pass{})", files.len() - passes, if files.len() - passes == 1 { "" } else { "s" }, if passes == 1 { "" } else { "es" });
         }
     }
     println!("\n`sous-chef transcript <id>` shows one; any part of the id will do.");
@@ -70,14 +73,14 @@ pub fn list() -> Result<()> {
 }
 
 pub fn show(id: &str) -> Result<()> {
-    let thread = names_in(&paths::data_dir().join("threads")).into_iter().find(|it| it.contains(id));
-    let hand = names_in(&paths::hands_dir()).into_iter().find(|it| it.contains(id));
-    let busy = busy_hand(id);
+    let chef_de_partie = names_in(&paths::data_dir().join("chefs_de_partie")).into_iter().find(|it| it.contains(id));
+    let commis = names_in(&paths::commis_dir()).into_iter().find(|it| it.contains(id));
+    let busy = busy_commis(id);
 
-    let (what, transcripts) = match (thread, hand, busy) {
-        (Some(thread), _, _) => (format!("thread {thread}"), transcripts_under(&of_thread(&thread))),
-        (None, Some(hand), _) => (format!("hand {hand}"), transcripts_under(&paths::hands_dir().join(hand))),
-        (None, None, Some((hand, profile))) => (format!("hand {hand}, still working"), transcripts_under(&profile.join("projects"))),
+    let (what, transcripts) = match (chef_de_partie, commis, busy) {
+        (Some(chef_de_partie), _, _) => (format!("chef de partie {chef_de_partie}"), transcripts_under(&of_chef_de_partie(&chef_de_partie))),
+        (None, Some(commis), _) => (format!("commis {commis}"), transcripts_under(&paths::commis_dir().join(commis))),
+        (None, None, Some((commis, profile))) => (format!("commis {commis}, still working"), transcripts_under(&profile.join("projects"))),
         (None, None, None) => bail!("nothing called {id}; `sous-chef transcript` lists what there is"),
     };
     if transcripts.is_empty() {
@@ -92,16 +95,16 @@ pub fn show(id: &str) -> Result<()> {
     Ok(())
 }
 
-/// The last lines of a thread's newest transcript, rendered as `show`
+/// The last lines of a chef de partie's newest transcript, rendered as `show`
 /// renders them, for `sous-chef dash`.
-pub fn tail_of_thread(thread: &str, lines: usize) -> Vec<String> {
-    let newest = transcripts_under(&of_thread(thread))
+pub fn tail_of_chef_de_partie(chef_de_partie: &str, lines: usize) -> Vec<String> {
+    let newest = transcripts_under(&of_chef_de_partie(chef_de_partie))
         .into_iter()
         .max_by_key(|it| fs::metadata(it).and_then(|it| it.modified()).ok());
     newest.map(|it| tail_of(&it, lines)).unwrap_or_default()
 }
 
-/// A long-lived thread's transcript runs to megabytes, so only its end is
+/// A long-lived chef de partie's transcript runs to megabytes, so only its end is
 /// read.
 fn tail_of(transcript: &Path, lines: usize) -> Vec<String> {
     let rendered = rendered(&logs::end_of(transcript, 256 * 1024));
@@ -109,13 +112,13 @@ fn tail_of(transcript: &Path, lines: usize) -> Vec<String> {
     all[all.len().saturating_sub(lines)..].iter().map(|it| it.to_string()).collect()
 }
 
-/// A hand that hasn't been discarded still has its transcript in its
+/// A commis that hasn't been discarded still has its transcript in its
 /// profile, under whichever sous-chef process is running it.
-fn busy_hand(id: &str) -> Option<(String, PathBuf)> {
+fn busy_commis(id: &str) -> Option<(String, PathBuf)> {
     for process in names_in(&paths::all_sessions_dir()) {
-        for hand in names_in(&paths::all_sessions_dir().join(&process)) {
-            if hand.contains(id) {
-                return Some((hand.clone(), paths::all_sessions_dir().join(process).join(hand).join("profile")));
+        for commis in names_in(&paths::all_sessions_dir().join(&process)) {
+            if commis.contains(id) {
+                return Some((commis.clone(), paths::all_sessions_dir().join(process).join(commis).join("profile")));
             }
         }
     }

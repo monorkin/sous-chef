@@ -1,14 +1,15 @@
 //! What sous-chef has to remember to run, as opposed to what she has learned:
-//! the schedules her threads set up, what each thread is working on, and the
-//! messages they send each other. One SQLite file, so a restart loses
-//! nothing and the next thing it needs to keep is a table away.
+//! the schedules her chefs de partie set up, what each chef de partie is
+//! working on, and the messages they send each other. One SQLite file, so a
+//! restart loses nothing and the next thing it needs to keep is a table away.
 //!
-//! This is not katami's memory. That holds durable facts and is shared with
-//! every other session on the machine; this holds sous-chef's own moving parts.
+//! This is not katami's recipe book. That holds durable facts and is shared
+//! with every other session on the machine; this holds sous-chef's own moving
+//! parts.
 //!
 //! The schema moves forward through numbered migrations keyed on
-//! `user_version`. Every thread and the scheduler open their own connection;
-//! WAL and a busy timeout let them write side by side.
+//! `user_version`. Every chef de partie and the scheduler open their own
+//! connection; WAL and a busy timeout let them write side by side.
 
 use anyhow::{Context, Result, bail};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -16,7 +17,7 @@ use std::path::Path;
 
 use crate::conversation::Origin;
 
-const MIGRATIONS: [&str; 8] = ["
+const MIGRATIONS: [&str; 9] = ["
     CREATE TABLE schedules (
         id INTEGER PRIMARY KEY,
         source TEXT NOT NULL,
@@ -90,6 +91,19 @@ const MIGRATIONS: [&str; 8] = ["
         project TEXT NOT NULL,
         started TEXT NOT NULL
     );
+", "
+    ALTER TABLE hands RENAME TO commis;
+    ALTER TABLE commis RENAME COLUMN hand TO commis;
+    ALTER TABLE commis RENAME COLUMN source TO printer;
+    ALTER TABLE schedules RENAME COLUMN source TO printer;
+    ALTER TABLE work RENAME COLUMN source TO printer;
+    ALTER TABLE work RENAME COLUMN thread TO chef_de_partie;
+    ALTER TABLE turns RENAME COLUMN source TO printer;
+    ALTER TABLE opened RENAME COLUMN source TO printer;
+    ALTER TABLE abouts RENAME COLUMN source TO printer;
+    ALTER TABLE abouts RENAME COLUMN thread TO chef_de_partie;
+    ALTER TABLE mail RENAME COLUMN from_thread TO from_chef_de_partie;
+    ALTER TABLE mail RENAME COLUMN to_source TO to_printer;
 "];
 
 /// A turn that was asked for and not yet finished: what a stopped sous-chef
@@ -102,11 +116,12 @@ pub struct PendingTurn {
     pub said: String,
 }
 
-/// A hand that was working when she was stopped. It is gone with her, and
-/// no turn of its thread is waiting to hear so, so its thread is told.
+/// A commis that was working when she was stopped. It is gone with her, and
+/// no turn of its chef de partie is waiting to hear so, so its chef de partie
+/// is told.
 #[derive(Debug, Clone, PartialEq)]
-pub struct HandLeft {
-    pub hand: String,
+pub struct CommisLeft {
+    pub commis: String,
     pub origin: Origin,
     pub trusted: bool,
     pub project: String,
@@ -129,12 +144,13 @@ pub struct Schedule {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Work {
     pub origin: Origin,
-    pub thread: String,
+    pub chef_de_partie: String,
     pub title: String,
     pub project: Option<String>,
     /// The id of the to-do, card or message the work is on, when that isn't
-    /// the conversation the thread lives in: what is said there is routed to
-    /// this thread rather than to one that would only pass it on.
+    /// the conversation the chef de partie lives in: what is said there is
+    /// routed to this chef de partie rather than to one that would only pass
+    /// it on.
     pub about: Option<String>,
     pub updated: String,
 }
@@ -142,12 +158,12 @@ pub struct Work {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Mail {
     pub id: i64,
-    pub from_thread: String,
+    pub from_chef_de_partie: String,
     pub to: Origin,
     pub body: String,
     /// Whether it was sent from a turn a trusted person started. That turn
-    /// could have done the work itself, so its word carries to the thread
-    /// that owns the work — the same agent, reading with the same care.
+    /// could have done the work itself, so its word carries to the chef de
+    /// partie that owns the work — the same agent, reading with the same care.
     pub trusted: bool,
 }
 
@@ -176,8 +192,8 @@ impl Store {
         Ok(store)
     }
 
-    /// A consistent copy of the whole database, safe to take while threads
-    /// and the scheduler are writing: SQLite builds it from one read
+    /// A consistent copy of the whole database, safe to take while chefs de
+    /// partie and the scheduler are writing: SQLite builds it from one read
     /// transaction. Copying the file instead could catch it mid-write, and
     /// would miss whatever is still in the write-ahead log.
     pub fn snapshot_to(&self, path: &Path) -> Result<()> {
@@ -229,14 +245,14 @@ impl Store {
 
     pub fn add_schedule(&self, origin: &Origin, cron: Option<&str>, task: &str, next_run: i64, trusted: bool, created: &str) -> Result<i64> {
         self.connection.execute(
-            "INSERT INTO schedules (source, conversation, cron, task, next_run, trusted, created) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![origin.source, origin.conversation, cron, task, next_run, trusted, created],
+            "INSERT INTO schedules (printer, conversation, cron, task, next_run, trusted, created) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![origin.printer, origin.conversation, cron, task, next_run, trusted, created],
         )?;
         Ok(self.connection.last_insert_rowid())
     }
 
     pub fn schedules_of(&self, origin: &Origin) -> Result<Vec<Schedule>> {
-        self.schedules_where("source = ?1 AND conversation = ?2", params![origin.source, origin.conversation])
+        self.schedules_where("printer = ?1 AND conversation = ?2", params![origin.printer, origin.conversation])
     }
 
     pub fn schedules_due(&self, now: i64) -> Result<Vec<Schedule>> {
@@ -254,24 +270,24 @@ impl Store {
         Ok(())
     }
 
-    /// A thread can only cancel what it set up itself.
+    /// A chef de partie can only cancel what it set up itself.
     pub fn cancel_schedule(&self, id: i64, origin: &Origin) -> Result<bool> {
         let removed = self.connection.execute(
-            "DELETE FROM schedules WHERE id = ?1 AND source = ?2 AND conversation = ?3",
-            params![id, origin.source, origin.conversation],
+            "DELETE FROM schedules WHERE id = ?1 AND printer = ?2 AND conversation = ?3",
+            params![id, origin.printer, origin.conversation],
         )?;
         Ok(removed > 0)
     }
 
     fn schedules_where(&self, condition: &str, values: &[&dyn rusqlite::ToSql]) -> Result<Vec<Schedule>> {
         let mut statement = self.connection.prepare(&format!(
-            "SELECT id, source, conversation, cron, task, next_run, trusted FROM schedules WHERE {condition} ORDER BY next_run, id"
+            "SELECT id, printer, conversation, cron, task, next_run, trusted FROM schedules WHERE {condition} ORDER BY next_run, id"
         ))?;
         let schedules = statement
             .query_map(values, |row| {
                 Ok(Schedule {
                     id: row.get(0)?,
-                    origin: Origin { source: row.get(1)?, conversation: row.get(2)? },
+                    origin: Origin { printer: row.get(1)?, conversation: row.get(2)? },
                     cron: row.get(3)?,
                     task: row.get(4)?,
                     next_run: row.get(5)?,
@@ -286,8 +302,8 @@ impl Store {
     /// was still to do survives a stop, a crash, or a limit that was hit.
     pub fn keep_turn(&self, origin: &Origin, trusted: bool, said: &str, now: &str) -> Result<i64> {
         self.connection.execute(
-            "INSERT INTO turns (source, conversation, trusted, said, queued) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![origin.source, origin.conversation, trusted, said, now],
+            "INSERT INTO turns (printer, conversation, trusted, said, queued) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![origin.printer, origin.conversation, trusted, said, now],
         )?;
         Ok(self.connection.last_insert_rowid())
     }
@@ -299,12 +315,12 @@ impl Store {
 
     /// In the order they were asked for, which is the order they run in.
     pub fn turns_left(&self) -> Result<Vec<PendingTurn>> {
-        let mut statement = self.connection.prepare("SELECT id, source, conversation, trusted, said FROM turns ORDER BY id")?;
+        let mut statement = self.connection.prepare("SELECT id, printer, conversation, trusted, said FROM turns ORDER BY id")?;
         let turns = statement
             .query_map([], |row| {
                 Ok(PendingTurn {
                     id: row.get(0)?,
-                    origin: Origin { source: row.get(1)?, conversation: row.get(2)? },
+                    origin: Origin { printer: row.get(1)?, conversation: row.get(2)? },
                     trusted: row.get(3)?,
                     said: row.get(4)?,
                 })
@@ -313,32 +329,32 @@ impl Store {
         Ok(turns)
     }
 
-    pub fn hand_at_work(&self, hand: &str, origin: &Origin, trusted: bool, project: &str, now: &str) -> Result<()> {
+    pub fn commis_at_work(&self, commis: &str, origin: &Origin, trusted: bool, project: &str, now: &str) -> Result<()> {
         self.connection.execute(
-            "INSERT OR REPLACE INTO hands (hand, source, conversation, trusted, project, started) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![hand, origin.source, origin.conversation, trusted, project, now],
+            "INSERT OR REPLACE INTO commis (commis, printer, conversation, trusted, project, started) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![commis, origin.printer, origin.conversation, trusted, project, now],
         )?;
         Ok(())
     }
 
-    pub fn hand_done(&self, hand: &str) -> Result<()> {
-        self.connection.execute("DELETE FROM hands WHERE hand = ?1", params![hand])?;
+    pub fn commis_done(&self, commis: &str) -> Result<()> {
+        self.connection.execute("DELETE FROM commis WHERE commis = ?1", params![commis])?;
         Ok(())
     }
 
-    pub fn hands_left(&self) -> Result<Vec<HandLeft>> {
-        let mut statement = self.connection.prepare("SELECT hand, source, conversation, trusted, project FROM hands ORDER BY started")?;
-        let hands = statement
+    pub fn commis_left(&self) -> Result<Vec<CommisLeft>> {
+        let mut statement = self.connection.prepare("SELECT commis, printer, conversation, trusted, project FROM commis ORDER BY started")?;
+        let commis = statement
             .query_map([], |row| {
-                Ok(HandLeft {
-                    hand: row.get(0)?,
-                    origin: Origin { source: row.get(1)?, conversation: row.get(2)? },
+                Ok(CommisLeft {
+                    commis: row.get(0)?,
+                    origin: Origin { printer: row.get(1)?, conversation: row.get(2)? },
                     trusted: row.get(3)?,
                     project: row.get(4)?,
                 })
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(hands)
+        Ok(commis)
     }
 
     /// A conversation is opened the first time a trusted person speaks in
@@ -347,8 +363,8 @@ impl Store {
     /// being able to hand her work.
     pub fn open_conversation(&self, origin: &Origin, now: &str) -> Result<()> {
         self.connection.execute(
-            "INSERT OR IGNORE INTO opened (source, conversation, opened) VALUES (?1, ?2, ?3)",
-            params![origin.source, origin.conversation, now],
+            "INSERT OR IGNORE INTO opened (printer, conversation, opened) VALUES (?1, ?2, ?3)",
+            params![origin.printer, origin.conversation, now],
         )?;
         Ok(())
     }
@@ -357,8 +373,8 @@ impl Store {
         let opened = self
             .connection
             .query_row(
-                "SELECT 1 FROM opened WHERE source = ?1 AND conversation = ?2",
-                params![origin.source, origin.conversation],
+                "SELECT 1 FROM opened WHERE printer = ?1 AND conversation = ?2",
+                params![origin.printer, origin.conversation],
                 |_| Ok(()),
             )
             .optional()?;
@@ -366,65 +382,66 @@ impl Store {
     }
 
     /// One line per conversation: claiming again replaces what was claimed.
-    pub fn claim_work(&self, origin: &Origin, thread: &str, title: &str, project: Option<&str>, about: Option<&str>, now: &str) -> Result<()> {
+    pub fn claim_work(&self, origin: &Origin, chef_de_partie: &str, title: &str, project: Option<&str>, about: Option<&str>, now: &str) -> Result<()> {
         self.connection.execute(
-            "INSERT INTO work (source, conversation, thread, title, project, about, status, updated)
+            "INSERT INTO work (printer, conversation, chef_de_partie, title, project, about, status, updated)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'open', ?7)
-             ON CONFLICT (source, conversation) DO UPDATE SET
-                 thread = excluded.thread, title = excluded.title, project = excluded.project,
+             ON CONFLICT (printer, conversation) DO UPDATE SET
+                 chef_de_partie = excluded.chef_de_partie, title = excluded.title, project = excluded.project,
                  about = coalesce(excluded.about, work.about), status = 'open', updated = excluded.updated",
-            params![origin.source, origin.conversation, thread, title, project, about, now],
+            params![origin.printer, origin.conversation, chef_de_partie, title, project, about, now],
         )?;
         if let Some(about) = about {
             self.connection.execute(
-                "INSERT INTO abouts (about, source, conversation, thread, claimed) VALUES (?1, ?2, ?3, ?4, ?5)
-                 ON CONFLICT (about, source, conversation) DO UPDATE SET thread = excluded.thread, claimed = excluded.claimed",
-                params![about, origin.source, origin.conversation, thread, now],
+                "INSERT INTO abouts (about, printer, conversation, chef_de_partie, claimed) VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT (about, printer, conversation) DO UPDATE SET chef_de_partie = excluded.chef_de_partie, claimed = excluded.claimed",
+                params![about, origin.printer, origin.conversation, chef_de_partie, now],
             )?;
         }
         Ok(())
     }
 
-    /// The thread to hear what is said on a recording, by the id it named
-    /// when it claimed work there: the one working on it now, or else the one
-    /// that worked on it last. A thread claims its next piece of work once
-    /// the last is done, and what is said on the old to-do is still for the
-    /// thread that knows it — not for a new one that can only pass it on.
-    pub fn thread_working_on(&self, about: &str) -> Result<Option<(String, Origin)>> {
+    /// The chef de partie to hear what is said on a recording, by the id it
+    /// named when it claimed work there: the one working on it now, or else
+    /// the one that worked on it last. A chef de partie claims its next piece
+    /// of work once the last is done, and what is said on the old to-do is
+    /// still for the chef de partie that knows it — not for a new one that can
+    /// only pass it on.
+    pub fn chef_de_partie_working_on(&self, about: &str) -> Result<Option<(String, Origin)>> {
         Ok(self
             .connection
             .query_row(
-                "SELECT abouts.thread, abouts.source, abouts.conversation FROM abouts
-                 LEFT JOIN work ON work.source = abouts.source AND work.conversation = abouts.conversation
+                "SELECT abouts.chef_de_partie, abouts.printer, abouts.conversation FROM abouts
+                 LEFT JOIN work ON work.printer = abouts.printer AND work.conversation = abouts.conversation
                  WHERE abouts.about = ?1
                  ORDER BY coalesce(work.status = 'open' AND work.about = abouts.about, 0) DESC, abouts.claimed DESC
                  LIMIT 1",
                 params![about],
-                |row| Ok((row.get(0)?, Origin { source: row.get(1)?, conversation: row.get(2)? })),
+                |row| Ok((row.get(0)?, Origin { printer: row.get(1)?, conversation: row.get(2)? })),
             )
             .optional()?)
     }
 
     pub fn finish_work(&self, origin: &Origin, now: &str) -> Result<bool> {
         let finished = self.connection.execute(
-            "UPDATE work SET status = 'done', updated = ?3 WHERE source = ?1 AND conversation = ?2 AND status = 'open'",
-            params![origin.source, origin.conversation, now],
+            "UPDATE work SET status = 'done', updated = ?3 WHERE printer = ?1 AND conversation = ?2 AND status = 'open'",
+            params![origin.printer, origin.conversation, now],
         )?;
         Ok(finished > 0)
     }
 
     /// Everything still claimed, newest first — the whole board, for anyone
-    /// asking from outside a thread.
+    /// asking from outside a chef de partie.
     pub fn open_work(&self) -> Result<Vec<Work>> {
         let mut statement = self.connection.prepare(
-            "SELECT source, conversation, thread, title, project, about, updated FROM work
+            "SELECT printer, conversation, chef_de_partie, title, project, about, updated FROM work
              WHERE status = 'open' ORDER BY updated DESC",
         )?;
         let work = statement
             .query_map([], |row| {
                 Ok(Work {
-                    origin: Origin { source: row.get(0)?, conversation: row.get(1)? },
-                    thread: row.get(2)?,
+                    origin: Origin { printer: row.get(0)?, conversation: row.get(1)? },
+                    chef_de_partie: row.get(2)?,
                     title: row.get(3)?,
                     project: row.get(4)?,
                     about: row.get(5)?,
@@ -437,14 +454,14 @@ impl Store {
 
     pub fn open_work_of_others(&self, origin: &Origin) -> Result<Vec<Work>> {
         let mut statement = self.connection.prepare(
-            "SELECT source, conversation, thread, title, project, about, updated FROM work
-             WHERE status = 'open' AND NOT (source = ?1 AND conversation = ?2) ORDER BY updated DESC",
+            "SELECT printer, conversation, chef_de_partie, title, project, about, updated FROM work
+             WHERE status = 'open' AND NOT (printer = ?1 AND conversation = ?2) ORDER BY updated DESC",
         )?;
         let work = statement
-            .query_map(params![origin.source, origin.conversation], |row| {
+            .query_map(params![origin.printer, origin.conversation], |row| {
                 Ok(Work {
-                    origin: Origin { source: row.get(0)?, conversation: row.get(1)? },
-                    thread: row.get(2)?,
+                    origin: Origin { printer: row.get(0)?, conversation: row.get(1)? },
+                    chef_de_partie: row.get(2)?,
                     title: row.get(3)?,
                     project: row.get(4)?,
                     about: row.get(5)?,
@@ -455,55 +472,55 @@ impl Store {
         Ok(work)
     }
 
-    /// Where a thread lives, for anyone who only knows its name.
-    pub fn origin_of_thread(&self, thread: &str) -> Result<Option<Origin>> {
+    /// Where a chef de partie lives, for anyone who only knows its name.
+    pub fn origin_of_chef_de_partie(&self, chef_de_partie: &str) -> Result<Option<Origin>> {
         let origin = self
             .connection
-            .query_row("SELECT source, conversation FROM work WHERE thread = ?1", params![thread], |row| {
-                Ok(Origin { source: row.get(0)?, conversation: row.get(1)? })
+            .query_row("SELECT printer, conversation FROM work WHERE chef_de_partie = ?1", params![chef_de_partie], |row| {
+                Ok(Origin { printer: row.get(0)?, conversation: row.get(1)? })
             })
             .optional()?;
         Ok(origin)
     }
 
-    /// Every thread that has ever been on the board, done or not, whose name
-    /// has `part` in it.
-    pub fn threads_named(&self, part: &str) -> Result<Vec<(String, Origin)>> {
+    /// Every chef de partie that has ever been on the board, done or not,
+    /// whose name has `part` in it.
+    pub fn chefs_de_partie_named(&self, part: &str) -> Result<Vec<(String, Origin)>> {
         let mut statement = self
             .connection
-            .prepare("SELECT thread, source, conversation FROM work WHERE instr(thread, ?1) > 0 ORDER BY thread")?;
-        let threads = statement
-            .query_map(params![part], |row| Ok((row.get(0)?, Origin { source: row.get(1)?, conversation: row.get(2)? })))?
+            .prepare("SELECT chef_de_partie, printer, conversation FROM work WHERE instr(chef_de_partie, ?1) > 0 ORDER BY chef_de_partie")?;
+        let chefs_de_partie = statement
+            .query_map(params![part], |row| Ok((row.get(0)?, Origin { printer: row.get(1)?, conversation: row.get(2)? })))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(threads)
+        Ok(chefs_de_partie)
     }
 
-    pub fn send_mail(&self, from_thread: &str, to: &Origin, body: &str, trusted: bool, now: i64) -> Result<()> {
+    pub fn send_mail(&self, from_chef_de_partie: &str, to: &Origin, body: &str, trusted: bool, now: i64) -> Result<()> {
         self.connection.execute(
-            "INSERT INTO mail (from_thread, to_source, to_conversation, body, trusted, sent) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![from_thread, to.source, to.conversation, body, trusted, now],
+            "INSERT INTO mail (from_chef_de_partie, to_printer, to_conversation, body, trusted, sent) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![from_chef_de_partie, to.printer, to.conversation, body, trusted, now],
         )?;
         Ok(())
     }
 
-    pub fn mail_sent_since(&self, from_thread: &str, since: i64) -> Result<i64> {
+    pub fn mail_sent_since(&self, from_chef_de_partie: &str, since: i64) -> Result<i64> {
         Ok(self.connection.query_row(
-            "SELECT count(*) FROM mail WHERE from_thread = ?1 AND sent >= ?2",
-            params![from_thread, since],
+            "SELECT count(*) FROM mail WHERE from_chef_de_partie = ?1 AND sent >= ?2",
+            params![from_chef_de_partie, since],
             |row| row.get(0),
         )?)
     }
 
     pub fn undelivered_mail(&self) -> Result<Vec<Mail>> {
         let mut statement = self.connection.prepare(
-            "SELECT id, from_thread, to_source, to_conversation, body, trusted FROM mail WHERE delivered IS NULL ORDER BY id",
+            "SELECT id, from_chef_de_partie, to_printer, to_conversation, body, trusted FROM mail WHERE delivered IS NULL ORDER BY id",
         )?;
         let mail = statement
             .query_map([], |row| {
                 Ok(Mail {
                     id: row.get(0)?,
-                    from_thread: row.get(1)?,
-                    to: Origin { source: row.get(2)?, conversation: row.get(3)? },
+                    from_chef_de_partie: row.get(1)?,
+                    to: Origin { printer: row.get(2)?, conversation: row.get(3)? },
                     body: row.get(4)?,
                     trusted: row.get(5)?,
                 })
@@ -530,7 +547,7 @@ mod tests {
     }
 
     fn origin(conversation: &str) -> Origin {
-        Origin { source: "basecamp".to_string(), conversation: conversation.to_string() }
+        Origin { printer: "basecamp".to_string(), conversation: conversation.to_string() }
     }
 
     #[test]
@@ -568,18 +585,45 @@ mod tests {
     }
 
     #[test]
-    fn hands_at_work_are_kept_until_they_are_done() {
-        let (store, directory) = store("hands");
-        store.hand_at_work("h1", &origin("card-1"), true, "/srv/shop", "2026-09-30T09:00:00Z").unwrap();
-        store.hand_at_work("h2", &origin("card-2"), false, "/srv/blog", "2026-09-30T09:00:01Z").unwrap();
-        store.hand_done("h1").unwrap();
+    fn commis_at_work_are_kept_until_they_are_done() {
+        let (store, directory) = store("commis");
+        store.commis_at_work("h1", &origin("card-1"), true, "/srv/shop", "2026-09-30T09:00:00Z").unwrap();
+        store.commis_at_work("h2", &origin("card-2"), false, "/srv/blog", "2026-09-30T09:00:01Z").unwrap();
+        store.commis_done("h1").unwrap();
 
         assert_eq!(
-            store.hands_left().unwrap(),
-            [HandLeft { hand: "h2".to_string(), origin: origin("card-2"), trusted: false, project: "/srv/blog".to_string() }]
+            store.commis_left().unwrap(),
+            [CommisLeft { commis: "h2".to_string(), origin: origin("card-2"), trusted: false, project: "/srv/blog".to_string() }]
         );
-        store.hand_done("h2").unwrap();
-        assert!(store.hands_left().unwrap().is_empty());
+        store.commis_done("h2").unwrap();
+        assert!(store.commis_left().unwrap().is_empty());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn a_database_from_before_the_kitchen_keeps_its_rows_under_the_new_names() {
+        let directory = std::env::temp_dir().join(format!("sous-chef-store-renamed-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir_all(&directory).unwrap();
+        let path = directory.join("sous-chef.db");
+
+        let old = Connection::open(&path).unwrap();
+        for (index, migration) in MIGRATIONS.iter().take(8).enumerate() {
+            old.execute_batch(&format!("{migration} PRAGMA user_version = {};", index + 1)).unwrap();
+        }
+        old.execute_batch(
+            "INSERT INTO hands (hand, source, conversation, trusted, project, started) VALUES ('h1', 'basecamp', 'card-1', 1, '/srv/shop', 't1');
+             INSERT INTO work (source, conversation, thread, title, status, updated) VALUES ('basecamp', 'card-1', 'basecamp-card-1', 'Login 500s', 'open', 't1');
+             INSERT INTO mail (from_thread, to_source, to_conversation, body, sent) VALUES ('basecamp-card-1', 'basecamp', 'card-2', 'Same bug.', 100);",
+        )
+        .unwrap();
+        drop(old);
+
+        let store = Store::open_at(&path).unwrap();
+        assert_eq!(store.commis_left().unwrap()[0].commis, "h1");
+        assert_eq!(store.open_work().unwrap()[0].chef_de_partie, "basecamp-card-1");
+        assert_eq!(store.undelivered_mail().unwrap()[0].from_chef_de_partie, "basecamp-card-1");
+        assert_eq!(store.origin_of_chef_de_partie("basecamp-card-1").unwrap(), Some(origin("card-1")));
         std::fs::remove_dir_all(directory).unwrap();
     }
 
@@ -617,12 +661,12 @@ mod tests {
         store.open_conversation(&origin("card-1"), "t2").unwrap();
         assert!(store.opened(&origin("card-1")).unwrap());
         assert!(!store.opened(&origin("card-2")).unwrap());
-        assert!(!store.opened(&Origin { source: "terminal".to_string(), conversation: "card-1".to_string() }).unwrap(), "opened on one source, not every source");
+        assert!(!store.opened(&Origin { printer: "terminal".to_string(), conversation: "card-1".to_string() }).unwrap(), "opened on one printer, not every printer");
         std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
-    fn a_thread_sees_what_the_others_have_open_but_not_its_own() {
+    fn a_chef_de_partie_sees_what_the_others_have_open_but_not_its_own() {
         let (store, directory) = store("work");
         store.claim_work(&origin("card-1"), "basecamp-card-1", "Login 500s on Safari", Some("frontdesk"), None, "t1").unwrap();
         store.claim_work(&origin("card-2"), "basecamp-card-2", "Session cookie dropped", Some("frontdesk"), Some("12345678901"), "t2").unwrap();
@@ -633,43 +677,43 @@ mod tests {
         assert_eq!(seen_by_first[0].title, "Session cookie dropped on Safari");
         assert_eq!(seen_by_first[0].project, None);
         assert_eq!(seen_by_first[0].about.as_deref(), Some("12345678901"), "claiming again without saying what it is about keeps what it was about");
-        assert_eq!(store.thread_working_on("12345678901").unwrap(), Some(("basecamp-card-2".to_string(), origin("card-2"))), "what is said on that to-do is card-2's to hear");
-        assert_eq!(store.thread_working_on("1").unwrap(), None);
-        assert_eq!(store.origin_of_thread("basecamp-card-2").unwrap(), Some(origin("card-2")));
-        assert_eq!(store.origin_of_thread("nobody").unwrap(), None);
+        assert_eq!(store.chef_de_partie_working_on("12345678901").unwrap(), Some(("basecamp-card-2".to_string(), origin("card-2"))), "what is said on that to-do is card-2's to hear");
+        assert_eq!(store.chef_de_partie_working_on("1").unwrap(), None);
+        assert_eq!(store.origin_of_chef_de_partie("basecamp-card-2").unwrap(), Some(origin("card-2")));
+        assert_eq!(store.origin_of_chef_de_partie("nobody").unwrap(), None);
 
         assert!(store.finish_work(&origin("card-2"), "t4").unwrap());
         assert!(!store.finish_work(&origin("card-2"), "t5").unwrap());
         assert_eq!(store.open_work_of_others(&origin("card-1")).unwrap(), []);
 
-        assert_eq!(store.threads_named("card-2").unwrap(), [("basecamp-card-2".to_string(), origin("card-2"))], "done work can still be found");
-        assert_eq!(store.threads_named("card").unwrap().len(), 2);
-        assert_eq!(store.threads_named("nobody").unwrap(), []);
+        assert_eq!(store.chefs_de_partie_named("card-2").unwrap(), [("basecamp-card-2".to_string(), origin("card-2"))], "done work can still be found");
+        assert_eq!(store.chefs_de_partie_named("card").unwrap().len(), 2);
+        assert_eq!(store.chefs_de_partie_named("nobody").unwrap(), []);
         std::fs::remove_dir_all(directory).unwrap();
     }
 
     #[test]
-    fn what_is_said_on_a_to_do_reaches_the_thread_that_worked_on_it_last() {
+    fn what_is_said_on_a_to_do_reaches_the_chef_de_partie_that_worked_on_it_last() {
         let (store, directory) = store("abouts");
         store.claim_work(&origin("ping"), "basecamp-ping", "Folders over HTTP", None, Some("12345678901"), "t1").unwrap();
         store.claim_work(&origin("ping"), "basecamp-ping", "Contacts over HTTP", None, Some("12345678902"), "t2").unwrap();
         assert_eq!(
-            store.thread_working_on("12345678901").unwrap(),
+            store.chef_de_partie_working_on("12345678901").unwrap(),
             Some(("basecamp-ping".to_string(), origin("ping"))),
-            "the folders to-do is still the ping thread's once it has moved on to contacts"
+            "the folders to-do is still the ping chef de partie's once it has moved on to contacts"
         );
 
         store.claim_work(&origin("card-2"), "basecamp-card-2", "Folders, the second half", None, Some("12345678901"), "t3").unwrap();
-        assert_eq!(store.thread_working_on("12345678901").unwrap().map(|(thread, _)| thread).as_deref(), Some("basecamp-card-2"), "whoever works on it now hears it");
+        assert_eq!(store.chef_de_partie_working_on("12345678901").unwrap().map(|(chef_de_partie, _)| chef_de_partie).as_deref(), Some("basecamp-card-2"), "whoever works on it now hears it");
 
         store.claim_work(&origin("ping"), "basecamp-ping", "Folders again", None, Some("12345678901"), "t4").unwrap();
         store.finish_work(&origin("ping"), "t5").unwrap();
         assert_eq!(
-            store.thread_working_on("12345678901").unwrap().map(|(thread, _)| thread).as_deref(),
+            store.chef_de_partie_working_on("12345678901").unwrap().map(|(chef_de_partie, _)| chef_de_partie).as_deref(),
             Some("basecamp-card-2"),
             "open work comes before work that is done, however recent"
         );
-        assert_eq!(store.thread_working_on("12345678902").unwrap().map(|(thread, _)| thread).as_deref(), Some("basecamp-ping"));
+        assert_eq!(store.chef_de_partie_working_on("12345678902").unwrap().map(|(chef_de_partie, _)| chef_de_partie).as_deref(), Some("basecamp-ping"));
         std::fs::remove_dir_all(directory).unwrap();
     }
 

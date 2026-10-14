@@ -2,8 +2,8 @@
 //!
 //! A count of busy conversations says she is doing something but not what,
 //! and the things worth knowing are spread out: the board holds what a
-//! thread claimed, the dispatcher holds what is queued behind a turn, and
-//! only the turn and its hands know when they started. None of that is kept
+//! chef de partie claimed, the expediter holds what is queued behind a turn,
+//! and only the turn and its commis know when they started. None of that is kept
 //! anywhere, so it is written down here while it happens and read back
 //! whole by `sous-chef status`.
 
@@ -15,27 +15,27 @@ use std::time::{Duration, Instant};
 #[derive(Default)]
 pub struct AtWork {
     turns: Mutex<HashMap<String, Instant>>,
-    /// By conversation. A hand works on after the turn that started it is
-    /// over, so its thread can listen meanwhile.
-    hands: Mutex<HashMap<String, Vec<Hand>>>,
+    /// By conversation. A commis works on after the turn that started it is
+    /// over, so its chef de partie can listen meanwhile.
+    commis: Mutex<HashMap<String, Vec<Commis>>>,
 }
 
-pub struct Hand {
+pub struct Commis {
     pub id: String,
     pub project: String,
     pub began: Instant,
 }
 
-/// A conversation with a turn running, hands working, or both. Its turn's
+/// A conversation with a turn running, commis working, or both. Its turn's
 /// time is none between turns.
 pub struct Going {
     pub conversation: String,
     pub taken: Option<Duration>,
-    pub hands: Vec<HandAt>,
+    pub commis: Vec<CommisAt>,
 }
 
-pub struct HandAt {
-    pub hand: String,
+pub struct CommisAt {
+    pub commis: String,
     pub project: String,
     pub taken: Duration,
 }
@@ -53,17 +53,17 @@ impl AtWork {
         WhileItRuns { at_work: self.clone(), conversation: conversation.to_string() }
     }
 
-    pub fn hand_began(&self, conversation: &str, id: &str, project: &str) {
-        let hand = Hand { id: id.to_string(), project: project.to_string(), began: Instant::now() };
-        self.hands.lock().unwrap().entry(conversation.to_string()).or_default().push(hand);
+    pub fn commis_began(&self, conversation: &str, id: &str, project: &str) {
+        let commis = Commis { id: id.to_string(), project: project.to_string(), began: Instant::now() };
+        self.commis.lock().unwrap().entry(conversation.to_string()).or_default().push(commis);
     }
 
-    pub fn hand_ended(&self, conversation: &str, id: &str) {
-        let mut hands = self.hands.lock().unwrap();
-        if let Some(working) = hands.get_mut(conversation) {
-            working.retain(|hand| hand.id != id);
+    pub fn commis_ended(&self, conversation: &str, id: &str) {
+        let mut brigade = self.commis.lock().unwrap();
+        if let Some(working) = brigade.get_mut(conversation) {
+            working.retain(|commis| commis.id != id);
             if working.is_empty() {
-                hands.remove(conversation);
+                brigade.remove(conversation);
             }
         }
     }
@@ -74,22 +74,22 @@ impl AtWork {
     pub fn going_on(&self) -> Vec<Going> {
         let now = Instant::now();
         let turns = self.turns.lock().unwrap();
-        let hands = self.hands.lock().unwrap();
-        let conversations: BTreeSet<&String> = turns.keys().chain(hands.keys()).collect();
+        let brigade = self.commis.lock().unwrap();
+        let conversations: BTreeSet<&String> = turns.keys().chain(brigade.keys()).collect();
         let mut going: Vec<Going> = conversations
             .into_iter()
             .map(|conversation| Going {
                 conversation: conversation.clone(),
                 taken: turns.get(conversation).map(|began| now - *began),
-                hands: hands
+                commis: brigade
                     .get(conversation)
                     .map(Vec::as_slice)
                     .unwrap_or_default()
                     .iter()
-                    .map(|hand| HandAt {
-                        hand: hand.id.clone(),
-                        project: hand.project.clone(),
-                        taken: now - hand.began,
+                    .map(|commis| CommisAt {
+                        commis: commis.id.clone(),
+                        project: commis.project.clone(),
+                        taken: now - commis.began,
                     })
                     .collect(),
             })
@@ -123,28 +123,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn turns_and_hands_are_there_while_they_run_and_gone_after() {
+    fn turns_and_commis_are_there_while_they_run_and_gone_after() {
         let at_work = Arc::new(AtWork::default());
         assert!(at_work.going_on().is_empty());
 
         let running = at_work.turn_began("basecamp-one");
-        at_work.hand_began("basecamp-one", "h1", "/home/x/shop");
-        at_work.hand_began("basecamp-one", "h2", "/home/x/blog");
-        at_work.hand_ended("basecamp-one", "h1");
+        at_work.commis_began("basecamp-one", "h1", "/home/x/shop");
+        at_work.commis_began("basecamp-one", "h2", "/home/x/blog");
+        at_work.commis_ended("basecamp-one", "h1");
 
         let going = at_work.going_on();
         assert_eq!(going.len(), 1);
         assert_eq!(going[0].conversation, "basecamp-one");
         assert!(going[0].taken.is_some());
-        assert_eq!(going[0].hands.len(), 1, "the hand that ended is gone, the other one is still there");
-        assert_eq!(going[0].hands[0].project, "/home/x/blog");
+        assert_eq!(going[0].commis.len(), 1, "the commis that ended is gone, the other one is still there");
+        assert_eq!(going[0].commis[0].project, "/home/x/blog");
 
         drop(running);
         let going = at_work.going_on();
-        assert_eq!(going.len(), 1, "the hand works on after its turn is over");
-        assert_eq!((going[0].taken, going[0].hands[0].hand.as_str()), (None, "h2"));
+        assert_eq!(going.len(), 1, "the commis works on after its turn is over");
+        assert_eq!((going[0].taken, going[0].commis[0].commis.as_str()), (None, "h2"));
 
-        at_work.hand_ended("basecamp-one", "h2");
+        at_work.commis_ended("basecamp-one", "h2");
         assert!(at_work.going_on().is_empty());
     }
 
