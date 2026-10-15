@@ -1,13 +1,15 @@
 # SOUS-CHEF
 
 sous-chef is a harness for a self-governing, token-efficient agent that you
-work with through Basecamp, HEY and Fizzy, the way you would with a human
-colleague.
+work with through Basecamp, HEY, Fizzy, or anything else the way you
+would with a human colleague.
 
 It uses your regular Claude Code subscription, runs all work in sandboxes —
 on this machine or on others you give it — can rotate between several
 Claude subscriptions, and learns and improves over time while staying
 token-efficient.
+
+<img width="1983" height="793" alt="Happy robots running a kitchen" src="https://github.com/user-attachments/assets/34b374a5-e569-48ef-b39d-4f942d4cd839" />
 
 > [!WARNING]
 > sous-chef is experimental. This is just an idea I'm playing around with.
