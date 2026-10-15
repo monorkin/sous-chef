@@ -107,7 +107,7 @@ impl Running {
                 let commis: Vec<Value> = going
                     .commis
                     .iter()
-                    .map(|at| json!({ "commis": at.commis, "project": at.project, "for": at_work::how_long(at.taken) }))
+                    .map(|at| json!({ "commis": at.commis, "project": at.project, "station": at.station, "for": at_work::how_long(at.taken) }))
                     .collect();
                 json!({
                     "conversation": going.conversation,

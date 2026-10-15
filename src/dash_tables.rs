@@ -8,7 +8,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Cell, Row, Table};
 
-use crate::dash_data::{Account, Limit, Now};
+use crate::dash_data::{Account, HERE, Limit, Now};
 
 const SPACING: u16 = 1;
 const PERCENT: u16 = 7;
@@ -17,6 +17,7 @@ const CHEF_DE_PARTIE: u16 = 18;
 const RUNNING: u16 = 7;
 const WAITING: u16 = 7;
 const COMMIS: u16 = 17;
+const STATION: u16 = 12;
 const WORKTREE: u16 = 14;
 const COMMIS_RUNNING: u16 = 10;
 
@@ -48,9 +49,9 @@ pub fn jev(rows: &[[String; 2]]) -> Table<'static> {
 }
 
 pub fn going_on(now: &Now, width: u16) -> Table<'static> {
-    let fixed = CHEF_DE_PARTIE + RUNNING + WAITING + COMMIS + WORKTREE + COMMIS_RUNNING + 6 * SPACING;
+    let fixed = CHEF_DE_PARTIE + RUNNING + WAITING + COMMIS + STATION + WORKTREE + COMMIS_RUNNING + 7 * SPACING;
     let title = width.saturating_sub(fixed).max(8);
-    let widths = [CHEF_DE_PARTIE, RUNNING, WAITING, title, COMMIS, WORKTREE, COMMIS_RUNNING];
+    let widths = [CHEF_DE_PARTIE, RUNNING, WAITING, title, COMMIS, STATION, WORKTREE, COMMIS_RUNNING];
 
     let rows: Vec<Row> = if now.going_on.is_empty() {
         vec![Row::new(["Nothing going on right now."])]
@@ -61,7 +62,7 @@ pub fn going_on(now: &Now, width: u16) -> Table<'static> {
             .collect()
     };
     Table::new(rows, widths.map(Constraint::Length))
-        .header(bold_row(["Chef de partie", "For", "Waiting", "Title", "Commis", "Worktree", "Commis for"].map(String::from)))
+        .header(bold_row(["Chef de partie", "For", "Waiting", "Title", "Commis", "Station", "Worktree", "Commis for"].map(String::from)))
         .block(Block::new().title(heading("Going on now")))
         .column_spacing(SPACING)
 }
@@ -83,7 +84,7 @@ pub fn claimed(now: &Now, width: u16) -> Table<'static> {
 }
 
 /// How each column of "Going on now" is coloured, by what is in it.
-const GOING_ON_STYLES: [fn(&str) -> Style; 7] = [chef_de_partie_style, age_style, waiting_style, plain_style, commis_style, worktree_style, age_style];
+const GOING_ON_STYLES: [fn(&str) -> Style; 8] = [chef_de_partie_style, age_style, waiting_style, plain_style, commis_style, station_style, worktree_style, age_style];
 
 fn chef_de_partie_style(_: &str) -> Style {
     Style::new().fg(Color::Cyan)
@@ -113,6 +114,15 @@ fn plain_style(_: &str) -> Style {
 
 fn commis_style(_: &str) -> Style {
     Style::new().add_modifier(Modifier::DIM)
+}
+
+/// A commis away at a station stands out; one working here doesn't.
+fn station_style(station: &str) -> Style {
+    if station == HERE {
+        Style::new().add_modifier(Modifier::DIM)
+    } else {
+        Style::new().fg(Color::Blue).add_modifier(Modifier::BOLD)
+    }
 }
 
 fn worktree_style(_: &str) -> Style {
@@ -225,6 +235,12 @@ mod tests {
         assert_eq!(waiting_style("3").fg, Some(Color::Yellow));
         assert_eq!(waiting_style("0"), Style::new());
         assert_eq!(waiting_style(""), Style::new());
+    }
+
+    #[test]
+    fn a_commis_away_at_a_station_stands_out_and_one_here_does_not() {
+        assert_eq!(station_style("server").fg, Some(Color::Blue));
+        assert_eq!(station_style(HERE).fg, None);
     }
 
     #[test]

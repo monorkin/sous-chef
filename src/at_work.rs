@@ -23,6 +23,8 @@ pub struct AtWork {
 pub struct Commis {
     pub id: String,
     pub project: String,
+    /// None when it works here.
+    pub station: Option<String>,
     pub began: Instant,
 }
 
@@ -37,6 +39,7 @@ pub struct Going {
 pub struct CommisAt {
     pub commis: String,
     pub project: String,
+    pub station: Option<String>,
     pub taken: Duration,
 }
 
@@ -53,8 +56,8 @@ impl AtWork {
         WhileItRuns { at_work: self.clone(), conversation: conversation.to_string() }
     }
 
-    pub fn commis_began(&self, conversation: &str, id: &str, project: &str) {
-        let commis = Commis { id: id.to_string(), project: project.to_string(), began: Instant::now() };
+    pub fn commis_began(&self, conversation: &str, id: &str, project: &str, station: Option<&str>) {
+        let commis = Commis { id: id.to_string(), project: project.to_string(), station: station.map(String::from), began: Instant::now() };
         self.commis.lock().unwrap().entry(conversation.to_string()).or_default().push(commis);
     }
 
@@ -89,6 +92,7 @@ impl AtWork {
                     .map(|commis| CommisAt {
                         commis: commis.id.clone(),
                         project: commis.project.clone(),
+                        station: commis.station.clone(),
                         taken: now - commis.began,
                     })
                     .collect(),
@@ -128,8 +132,8 @@ mod tests {
         assert!(at_work.going_on().is_empty());
 
         let running = at_work.turn_began("basecamp-one");
-        at_work.commis_began("basecamp-one", "h1", "/home/x/shop");
-        at_work.commis_began("basecamp-one", "h2", "/home/x/blog");
+        at_work.commis_began("basecamp-one", "h1", "/home/x/shop", None);
+        at_work.commis_began("basecamp-one", "h2", "/home/x/blog", Some("server"));
         at_work.commis_ended("basecamp-one", "h1");
 
         let going = at_work.going_on();
@@ -138,6 +142,7 @@ mod tests {
         assert!(going[0].taken.is_some());
         assert_eq!(going[0].commis.len(), 1, "the commis that ended is gone, the other one is still there");
         assert_eq!(going[0].commis[0].project, "/home/x/blog");
+        assert_eq!(going[0].commis[0].station.as_deref(), Some("server"), "where it works is kept with it");
 
         drop(running);
         let going = at_work.going_on();

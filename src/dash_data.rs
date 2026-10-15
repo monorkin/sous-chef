@@ -22,6 +22,9 @@ use crate::secrets;
 
 const LOG_LINES: usize = 500;
 
+/// The station of a commis that works on this machine.
+pub const HERE: &str = "here";
+
 /// Everything on the dashboard at one moment.
 pub struct Snapshot {
     pub accounts: Vec<Account>,
@@ -76,9 +79,9 @@ pub struct Limit {
 #[derive(Default, Debug, PartialEq)]
 pub struct Now {
     /// Chef de partie, running for, messages waiting, title, commis, the
-    /// commis's worktree and how long it has run: one row per commis, the
-    /// chef de partie's columns only on its first.
-    pub going_on: Vec<[String; 7]>,
+    /// station it works at, its worktree and how long it has run: one row
+    /// per commis, the chef de partie's columns only on its first.
+    pub going_on: Vec<[String; 8]>,
     /// Chef de partie and what it's doing.
     pub claimed: Vec<[String; 2]>,
     /// Every chef de partie that can be told something, the busy ones first.
@@ -94,8 +97,9 @@ pub struct ChefDePartieNow {
     /// How long its turn has run; none between turns.
     pub turn_for: Option<String>,
     pub waiting: String,
-    /// Each commis at work for it: the commis, its worktree, and how long.
-    pub commis: Vec<[String; 3]>,
+    /// Each commis at work for it: the commis, its station, its worktree,
+    /// and how long.
+    pub commis: Vec<[String; 4]>,
 }
 
 /// Asked once: the key lives in the keyring, which isn't something to knock
@@ -222,7 +226,7 @@ fn now_of(status: &Value) -> Now {
         let brigade = listed(&turn["commis"]);
         if brigade.is_empty() {
             let [chef_de_partie, running, waiting, title] = turn_columns.clone();
-            now.going_on.push([chef_de_partie, running, waiting, title, String::new(), String::new(), String::new()]);
+            now.going_on.push([chef_de_partie, running, waiting, title, String::new(), String::new(), String::new(), String::new()]);
         }
         let mut about = ChefDePartieNow {
             title: text(&turn["doing"]).to_string(),
@@ -233,8 +237,9 @@ fn now_of(status: &Value) -> Now {
         for (index, commis) in brigade.iter().enumerate() {
             let [short, running, waiting, title] = if index == 0 { turn_columns.clone() } else { Default::default() };
             let worktree = Path::new(text(&commis["project"])).file_name().map(|it| it.to_string_lossy().into_owned()).unwrap_or_default();
-            about.commis.push([text(&commis["commis"]).to_string(), worktree.clone(), text(&commis["for"]).to_string()]);
-            now.going_on.push([short, running, waiting, title, text(&commis["commis"]).to_string(), worktree, text(&commis["for"]).to_string()]);
+            let station = commis["station"].as_str().unwrap_or(HERE).to_string();
+            about.commis.push([text(&commis["commis"]).to_string(), station.clone(), worktree.clone(), text(&commis["for"]).to_string()]);
+            now.going_on.push([short, running, waiting, title, text(&commis["commis"]).to_string(), station, worktree, text(&commis["for"]).to_string()]);
         }
         now.about.insert(chef_de_partie.clone(), about);
         now.chefs_de_partie.push(chef_de_partie);
@@ -315,7 +320,7 @@ mod tests {
     }
 
     #[test]
-    fn status_becomes_rows_with_commis_under_their_chef_de_partie() {
+    fn status_becomes_rows_with_commis_and_their_stations_under_their_chef_de_partie() {
         let status = json!({
             "going_on": [{
                 "conversation": "basecamp-card-1",
@@ -323,8 +328,8 @@ mod tests {
                 "waiting": 3,
                 "doing": "Fixing the login",
                 "commis": [
-                    { "commis": "h18d9", "project": "/srv/worktrees/login-fix", "for": "13m" },
-                    { "commis": "h18da", "project": "/srv/worktrees/login-docs", "for": "2m" },
+                    { "commis": "h18d9", "project": "/srv/worktrees/login-fix", "station": null, "for": "13m" },
+                    { "commis": "h18da", "project": "/srv/worktrees/login-docs", "station": "server", "for": "2m" },
                 ],
             }, {
                 "conversation": "basecamp-card-3",
@@ -336,14 +341,14 @@ mod tests {
             "board": [{ "conversation": "basecamp-card-2", "doing": "Waiting on review" }],
         });
 
-        let row = |cells: [&str; 7]| cells.map(String::from);
+        let row = |cells: [&str; 8]| cells.map(String::from);
         let now = now_of(&status);
         assert_eq!(
             now.going_on,
             vec![
-                row(["basecamp-card-1", "14m", "3", "Fixing the login", "h18d9", "login-fix", "13m"]),
-                row(["", "", "", "", "h18da", "login-docs", "2m"]),
-                row(["basecamp-card-3", "1m", "", "-", "", "", ""]),
+                row(["basecamp-card-1", "14m", "3", "Fixing the login", "h18d9", "here", "login-fix", "13m"]),
+                row(["", "", "", "", "h18da", "server", "login-docs", "2m"]),
+                row(["basecamp-card-3", "1m", "", "-", "", "", "", ""]),
             ]
         );
         assert_eq!(now.claimed, vec![["basecamp-card-2".to_string(), "Waiting on review".to_string()]]);
@@ -354,7 +359,7 @@ mod tests {
                 title: "Fixing the login".to_string(),
                 turn_for: Some("14m".to_string()),
                 waiting: "3".to_string(),
-                commis: vec![["h18d9", "login-fix", "13m"].map(String::from), ["h18da", "login-docs", "2m"].map(String::from)],
+                commis: vec![["h18d9", "here", "login-fix", "13m"].map(String::from), ["h18da", "server", "login-docs", "2m"].map(String::from)],
             }
         );
         assert_eq!(now.about["basecamp-card-2"], ChefDePartieNow { title: "Waiting on review".to_string(), ..ChefDePartieNow::default() }, "a chef de partie between turns has no turn running");

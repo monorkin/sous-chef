@@ -266,7 +266,8 @@ impl Kitchen {
                 return Err(error);
             }
         };
-        self.runtime.at_work.commis_began(key, &id, &project);
+        let station = commis.at().map(|at| at.name.clone());
+        self.runtime.at_work.commis_began(key, &id, &project, station.as_deref());
         let kitchen = self.clone();
         let ask = ask.to_string();
         thread::spawn(move || kitchen.round(commis, &ask, &started));

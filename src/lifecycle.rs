@@ -187,8 +187,9 @@ fn print_going_on(turns: &[serde_json::Value]) {
             println!("      {doing}");
         }
         for commis in turn["commis"].as_array().map(Vec::as_slice).unwrap_or_default() {
+            let at = commis["station"].as_str().map(|station| format!(" at {station}")).unwrap_or_default();
             println!(
-                "      commis {} in {}, {}",
+                "      commis {} in {}{at}, {}",
                 text(&commis["commis"]),
                 text(&commis["project"]),
                 text(&commis["for"])

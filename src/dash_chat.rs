@@ -10,7 +10,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
 
 use crate::dash::Effect;
-use crate::dash_data::ChefDePartieNow;
+use crate::dash_data::{ChefDePartieNow, HERE};
 use crate::lifecycle;
 use crate::transcripts;
 
@@ -135,13 +135,18 @@ fn head_of(chef_de_partie: Option<&str>, about: Option<&ChefDePartieNow>) -> Vec
         many => turn.push(Span::styled(format!(" · {many} messages waiting"), Style::new().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
     }
     lines.push(Line::from(turn));
-    for [commis, worktree, taken] in &about.commis {
-        lines.push(Line::from(vec![
+    for [commis, station, worktree, taken] in &about.commis {
+        let mut line = vec![
             Span::styled(format!("Commis {commis}"), Style::new().add_modifier(Modifier::DIM)),
             Span::raw(" in "),
             Span::styled(worktree.clone(), Style::new().fg(Color::Magenta)),
-            Span::raw(format!(", {taken}")),
-        ]));
+        ];
+        if station != HERE {
+            line.push(Span::raw(" at "));
+            line.push(Span::styled(station.clone(), Style::new().fg(Color::Blue).add_modifier(Modifier::BOLD)));
+        }
+        line.push(Span::raw(format!(", {taken}")));
+        lines.push(Line::from(line));
     }
     lines
 }
@@ -247,11 +252,17 @@ mod tests {
             title: "Fixing the login".to_string(),
             turn_for: Some("14m".to_string()),
             waiting: "3".to_string(),
-            commis: vec![["h18d9", "login-fix", "13m"].map(String::from)],
+            commis: vec![["h18d9", HERE, "login-fix", "13m"].map(String::from), ["h18da", "server", "login-docs", "2m"].map(String::from)],
         };
         assert_eq!(
             text(head_of(Some("basecamp-card-1"), Some(&about))),
-            ["To basecamp-card-1", "Fixing the login", "Turn running for 14m · 3 messages waiting", "Commis h18d9 in login-fix, 13m"]
+            [
+                "To basecamp-card-1",
+                "Fixing the login",
+                "Turn running for 14m · 3 messages waiting",
+                "Commis h18d9 in login-fix, 13m",
+                "Commis h18da in login-docs at server, 2m"
+            ]
         );
 
         let resting = ChefDePartieNow { title: "Waiting on review".to_string(), ..ChefDePartieNow::default() };
