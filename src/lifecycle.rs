@@ -10,6 +10,7 @@ use anyhow::{Context, Result, bail};
 use serde_json::json;
 use std::fs::{self, OpenOptions};
 use std::os::unix::process::CommandExt;
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -21,6 +22,13 @@ use crate::service;
 const PATIENCE: Duration = Duration::from_secs(20);
 
 pub fn start() -> Result<()> {
+    start_as(&std::env::current_exe().context("could not determine sous-chef's own path")?)
+}
+
+/// Starts `binary` rather than the one running this command, for an upgrade
+/// that has just put a new one in place. The service already starts whatever
+/// it was pointed at.
+pub fn start_as(binary: &Path) -> Result<()> {
     if control::is_running() {
         println!("sous-chef is already running.");
         return Ok(());
@@ -29,7 +37,7 @@ pub fn start() -> Result<()> {
     if service::installed() {
         service::start()?;
     } else {
-        start_in_the_background()?;
+        start_in_the_background(binary)?;
     }
 
     if wait_until(control::is_running) {
@@ -65,6 +73,11 @@ pub fn stop() -> Result<()> {
 pub fn restart() -> Result<()> {
     stop()?;
     start()
+}
+
+pub fn restart_as(binary: &Path) -> Result<()> {
+    stop()?;
+    start_as(binary)
 }
 
 pub fn status() -> Result<()> {
@@ -124,14 +137,14 @@ fn said_back(answer: serde_json::Value) -> Result<String> {
 
 /// `sous-chef run` in a session of its own, so it survives the terminal that
 /// started it, with its output kept where `start` can point at it.
-fn start_in_the_background() -> Result<()> {
+fn start_in_the_background(binary: &Path) -> Result<()> {
     let output_path = paths::output_file();
     if let Some(directory) = output_path.parent() {
         fs::create_dir_all(directory)?;
     }
     let output = OpenOptions::new().create(true).append(true).open(&output_path)?;
 
-    let mut command = Command::new(std::env::current_exe().context("could not determine sous-chef's own path")?);
+    let mut command = Command::new(binary);
     command
         .arg("run")
         .stdin(Stdio::null())

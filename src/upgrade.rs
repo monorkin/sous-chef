@@ -8,9 +8,9 @@
 //! move forward.
 //!
 //! The service starts the binary by its path, which carries the version, so
-//! the unit is pointed at the new one. The old one keeps running until it is
-//! restarted: a restart stops whatever the commis are doing, and that is for
-//! the chef to time.
+//! the unit is pointed at the new one. A sous-chef that is running is then
+//! restarted on it, which stops whatever the commis are doing; every turn
+//! picks up where it was.
 
 use anyhow::{Context, Result, bail};
 use serde::Deserialize;
@@ -19,6 +19,7 @@ use std::process::Command;
 
 use crate::config::Config;
 use crate::control;
+use crate::lifecycle;
 use crate::service;
 
 const CURRENT: &str = env!("CARGO_PKG_VERSION");
@@ -44,7 +45,8 @@ pub fn run(requested: Option<&str>) -> Result<()> {
     match mise_install()? {
         Some(install) => {
             let binary = upgrade_via_mise(&install, &latest)?;
-            point_the_service_at(&binary)
+            point_the_service_at(&binary)?;
+            restart_if_running(&binary)
         }
         None => bail!(
             "update available ({CURRENT} → {latest}), but this binary isn't a mise install — \
@@ -199,10 +201,16 @@ fn point_the_service_at(binary: &Path) -> Result<()> {
         service::point_at(&Config::load()?.name, binary)?;
         println!("The service now starts {}.", binary.display());
     }
-    if control::is_running() {
-        println!("sous-chef {CURRENT} is still running. `sous-chef restart` puts it on the new one; it stops whatever the commis are doing.");
-    }
     Ok(())
+}
+
+fn restart_if_running(binary: &Path) -> Result<()> {
+    if control::is_running() {
+        println!("Restarting sous-chef on the new version…");
+        lifecycle::restart_as(binary)
+    } else {
+        Ok(())
+    }
 }
 
 fn use_hint(install: &MiseInstall, latest: &str) -> String {

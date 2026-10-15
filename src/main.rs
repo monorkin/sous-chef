@@ -83,7 +83,7 @@ struct Cli {
 enum Command {
     /// Walk through the one-time setup; safe to run again
     Setup,
-    /// Upgrade a mise install to the latest release, and point the service at it
+    /// Upgrade a mise install to the latest release, and restart sous-chef on it if it's running
     Upgrade {
         /// Target a specific release instead of the latest
         version: Option<String>,

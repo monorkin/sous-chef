@@ -27,23 +27,11 @@ The easiest way to install sous-chef is through [mise](https://mise.jdx.dev):
 mise use -g github:monorkin/sous-chef
 ```
 
-mise hides releases younger than 24 hours by default (`minimum_release_age`).
-If the latest release is fresher than that, pin the version instead:
-
-```bash
-mise use -g github:monorkin/sous-chef@v0.1.0
-```
-
 On [Omarchy](https://omarchy.org):
 
 ```bash
 omarchy-mise-install github:monorkin/sous-chef sous-chef
 ```
-
-Commis run in [bubblewrap](https://github.com/containers/bubblewrap) and
-reach their services through `socat`, so install both from your distribution.
-If [mr-boxington](https://mr-boxington.jdx.dev) is among your global mise
-tools, commis build Rust through it, with a cache of their own.
 
 Once installed, start the setup. It guides you through everything, including
 what the agent is called:
@@ -52,24 +40,11 @@ what the agent is called:
 sous-chef setup
 ```
 
-This project used to be called anna. If you installed it with
-`github:monorkin/anna`, reinstall it with `mise use -g github:monorkin/sous-chef`.
-Stop the old one first (`anna stop`); the first time sous-chef starts, it
-moves your folders, Claude sessions, keyring token and service over.
-
 ## Upgrading
 
 ```bash
 sous-chef upgrade           # to the latest release
 sous-chef upgrade 0.2.0     # or to a specific one
-```
-
-This moves the mise install forward and points the service at the new
-binary. The old one keeps running until you restart sous-chef, so pick a
-moment when no commis is in the middle of something:
-
-```bash
-sous-chef restart
 ```
 
 ## Usage
@@ -114,86 +89,89 @@ sous-chef memory list
 sous-chef memory archive [memory-id]
 ```
 
-## The kitchen
+## Architecture
 
-sous-chef is built like a kitchen, and these names are used everywhere: in
-the code, the config, the logs and the commands.
+sous-chef is organized like a kitchen, the naming can be confusing so here's an explainer:
 
 | Name | What it is in sous-chef | Why |
 |---|---|---|
 | **Chef** | You, the person the agent works for. | Sets the menu and gives the orders. |
-| **Sous-chef** | The harness itself: the program that runs everything below. | Runs the kitchen on the chef's behalf. |
-| **Waiters** | Where messages come from and replies go back to: Basecamp, HEY, Fizzy, GitHub, Sentry. One message is a ticket. | Bring orders in from the dining room as tickets, and carry the plates back out. |
-| **Expediter** | Takes each ticket and calls it to the chef de partie that owns its conversation, or starts a new one. | Reads every ticket and calls it to the right station. |
-| **Chef de partie** | One per conversation. Plans the work, writes the briefs and sends commis to do it. | Owns one order from start to finish. |
+| **Sous-chef** | This harness | Runs the kitchen on the chef's behalf. |
+| **Waiters** | Where messages come from and replies go back to: Basecamp, HEY, Fizzy, GitHub, Sentry. One message is a ticket. | Bring orders in as tickets, and carry the plates back out. |
+| **Expediter** | Takes each ticket and calls it to the chef de partie that owns it, or it employs a new one. | Reads every ticket and calls it to the right station. |
+| **Chef de partie** | Owns and plans the work, writes the briefs and sends commis to do it. | Owns one order from start to finish. |
 | **Commis** | A sandboxed Claude Code session that does the actual work in one project folder, and reports back. | The junior cook who does the prep, under a chef de partie. |
-| **Station** | A machine a commis works on: this one, or another set up with `sous-chef station add`. | Where a commis works. |
-| **The pass** | Checks a commis's work against the brief before the chef de partie hears about it, and sends back only a verdict. | Every plate is checked there before it goes out. |
-| **Taster** | Screens what comes in for manipulation, and scores the style of what goes out (Jev with a key, haiku without). | Tastes everything before it's served or used. |
+| **Station** | A machine a commis works on | Where a commis works. |
+| **The pass** | Checks a commis's work before the chef de partie hears about it, and sends back only a verdict. | Every plate is checked there before it goes out. |
+| **Taster** | Screens what comes in for manipulation, and scores the style of what goes out. | Tastes everything before it's served or used. |
 | **Plating** | Restyles outgoing prose to your style before it is posted, without changing what it says. | Makes a dish presentable without changing the dish. |
 
-## Architecture
+Or in the from of a graph:
+
+```mermaid
+flowchart TB
+    subgraph waiters["Waiters"]
+        services["Basecamp / Fizzy / HEY / GitHub / Sentry"]
+    end
+
+    subgraph souschef["Sous-chef"]
+        expediter["<b>Expediter</b><br/>classifies and routes"]
+
+        subgraph cdp1["Chef de partie"]
+            session1["<b>Session</b><br/>plans, writes brief + grant"]
+            pass1["<b>The pass</b><br/>checks the commis' work"]
+        end
+
+        subgraph cdp2["Chef de partie"]
+            session2["<b>Session</b>"]
+            pass2["<b>The pass</b>"]
+        end
+
+        broker["<b>Broker</b><br/>enforces each commis' grant,<br/>carries MCP actions and Claude API traffic"]
+        memory["<b>Memory</b><br/>transcript › extract › rules › risk › store"]
+    end
+
+    subgraph here["Station: this machine"]
+        commis1["<b>Commis</b><br/>Claude Code in a sandbox: one project folder,<br/>no network, deleted when the chef de partie is done"]
+    end
+
+    subgraph server["Station: server"]
+        commis2["<b>Commis</b>"]
+        commis3["<b>Commis</b>"]
+    end
+
+    services -- "messages, assignments" --> expediter
+    expediter -- message --> cdp1
+    expediter -- message --> cdp2
+    cdp1 -- "replies, comments" --> services
+    cdp2 -- "replies, comments" --> services
+
+    cdp1 -- "brief + grant" --> broker
+    cdp2 -- "brief + grant" --> broker
+    broker -- "result + transcript" --> cdp1
+    broker -- "result + transcript" --> cdp2
+    broker --> memory
+
+    broker <--> commis1
+    broker <-- ssh --> commis2
+    broker <-- ssh --> commis3
+```
 
 A commis can only talk to its chef de partie. It has very limited disk
 access and no internet access besides localhost, whichever station it works
 at. Everything it does beyond the sandbox goes through an MCP request that a
 broker arbitrates.
 
-```
-+- WAITERS ----------------------------------------------------------+
-|                                                                    |
-|            Basecamp / Fizzy / HEY / Github / Sentry                |
-|                                                                    |
-+----^----------------------------+-----------------------------^----+
-     |                            |                             |
-     | replies,                   | messages,          replies, |
-     | comments                   | assignments        comments |
-     |                            |                             |
-+----|-- SOUS-CHEF ---------------|-----------------------------|----+
-|    |                            |                             |    |
-|    |               +------------v-------------+               |    |
-|    |               |        EXPEDITER         |               |    |
-|    |               |  classifies and routes   |               |    |
-|    |               +-----+--------------+-----+               |    |
-|    |                     |              |                     |    |
-|    |             message |              | message             |    |
-|    |                     |              |                     |    |
-|  +-+--- CHEF DE PARTIE --v----+    +----v-- CHEF DE PARTIE ---+-+  |
-|  |  SESSION          PASS     |    |  SESSION          PASS     |  |
-|  |  plans, writes checks the  |    |                            |  |
-|  |  brief + grant commis work |    |                            |  |
-|  +---+------------^-----------+    +-----+------^------+------^-+  |
-|      | brief +    | result +             |      |      |      |    |
-|      | grant      | transcript           |      |      |      |    |
-|      |            |                      |      |      |      |    |
-|  +---v------------+----------------------v------+------v------+-+  |
-|  |  BROKER   enforces each commis' grant, carries MCP actions   |  |
-|  |           and Claude API traffic                             |  |
-|  +---+------------^---------------+------+------^------+------^-+  |
-|      |            |               |      |      |      |      |    |
-|      |            |  +- MEMORY ---v---+  |      |      |      |    |
-|      |            |  | transcript >   |  |      |      |      |    |
-|      |            |  | extract > rules|  |      |      |      |    |
-|      |            |  | > risk > store |  |      |      |      |    |
-|      |            |  +----------------+  |      |      |      |    |
-|      |            |                      |      |      |      |    |
-+------+------------+----------------------+------+------+------+----+
-       |            |                      |      |      |      |
-       |            |                 ssh  |      |      |      |
- +-----|------------|--------------+ +-----|------|------|------|----+
- | +---v-- COMMIS --+-----------+  | |  +--v------+--+ +-v------+--+ |
- | | Claude Code in a sandbox:  |  | |  | COMMIS     | | COMMIS    | |
- | | one project folder, no     |  | |  |            | |           | |
- | | network, deleted when the  |  | |  |            | |           | |
- | | chef de partie is done     |  | |  |            | |           | |
- | +----------------------------+  | |  +------------+ +-----------+ |
- +- STATION: this machine ---------+ +- STATION: server -------------+
-```
-
 A commis at another station works the same way. Its project goes there by
 git and its commits come back; the broker and the Claude proxy stay here,
 carried over one ssh connection, so what a commis may reach is still decided
 on this machine.
+
+Commis run in [bubblewrap](https://github.com/containers/bubblewrap) and
+reach their services through `socat`, so install both from your distribution.
+
+If [mr-boxington](https://mr-boxington.jdx.dev) is among your global mise
+tools, commis build Rust through it, with a cache of their own.
 
 ## Building
 
