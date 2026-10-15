@@ -12,7 +12,7 @@
 
 use anyhow::{Context, Result, bail};
 use serde_json::{Value, json};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -121,7 +121,8 @@ impl Running {
     }
 
     /// Work that is claimed but has no turn running this minute: a chef de
-    /// partie asleep between one message and the next still owns it.
+    /// partie asleep between one message and the next still owns it. By
+    /// name, so it holds still while claims are made again.
     fn board(&self) -> Vec<Value> {
         let running: HashSet<String> =
             self.runtime.at_work.going_on().into_iter().map(|going| going.conversation).collect();
@@ -132,7 +133,7 @@ impl Running {
             .collect()
     }
 
-    fn claimed(&self) -> HashMap<String, String> {
+    fn claimed(&self) -> BTreeMap<String, String> {
         Store::open_at(&self.runtime.database)
             .and_then(|store| store.open_work())
             .map(|work| work.into_iter().map(|it| (it.chef_de_partie, it.title)).collect())
@@ -151,6 +152,7 @@ impl Controls for Running {
             "conversations": self.turns.busy_conversations(),
             "going_on": self.going_on(),
             "board": self.board(),
+            "stations": self.runtime.config.stations.keys().collect::<Vec<_>>(),
         })
     }
 

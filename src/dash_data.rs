@@ -8,7 +8,7 @@ use anyhow::Result;
 use ax::usage::Report;
 use katami::memory::{ListFilter, Listing, Memory, OverviewRow};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::Path;
 
@@ -78,13 +78,15 @@ pub struct Limit {
 /// What `sous-chef status` knows, as rows.
 #[derive(Default, Debug, PartialEq)]
 pub struct Now {
-    /// Chef de partie, running for, messages waiting, title, commis, the
-    /// station it works at, its worktree and how long it has run: one row
-    /// per commis, the chef de partie's columns only on its first.
-    pub going_on: Vec<[String; 8]>,
-    /// Chef de partie and what it's doing.
-    pub claimed: Vec<[String; 2]>,
-    /// Every chef de partie that can be told something, the busy ones first.
+    /// Chef de partie, how long its turn has run, messages waiting, title,
+    /// and where its commis are: one row for every chef de partie with a
+    /// turn running, commis working or work claimed, in the order of
+    /// `chefs_de_partie`.
+    pub rows: Vec<[String; 5]>,
+    /// Where commis work: here first, then every station, idle ones too.
+    pub stations: Vec<StationNow>,
+    /// Every chef de partie that can be told something, by name, so the
+    /// list holds still while their turns come and go.
     pub chefs_de_partie: Vec<String>,
     /// What is known about each of those chefs de partie, by its full name.
     pub about: HashMap<String, ChefDePartieNow>,
@@ -99,6 +101,14 @@ pub struct ChefDePartieNow {
     pub waiting: String,
     /// Each commis at work for it: the commis, its station, its worktree,
     /// and how long.
+    pub commis: Vec<[String; 4]>,
+}
+
+/// One machine commis work on, and who is at work there.
+#[derive(Default, Debug, PartialEq, Clone)]
+pub struct StationNow {
+    pub name: String,
+    /// The commis, its chef de partie, its worktree, and how long.
     pub commis: Vec<[String; 4]>,
 }
 
@@ -217,40 +227,80 @@ fn dollars(requests: u64) -> String {
     format!("${:.2}", requests as f64 * JEV_DOLLARS_PER_REQUEST_ESTIMATE)
 }
 
-/// The `status` answer of a running sous-chef, as rows.
+/// The `status` answer of a running sous-chef, as rows. Everything is in
+/// the order of the chefs de partie's names, which nothing that happens
+/// moves.
 fn now_of(status: &Value) -> Now {
-    let mut now = Now::default();
+    let mut about: BTreeMap<String, ChefDePartieNow> = BTreeMap::new();
     for turn in listed(&status["going_on"]) {
-        let chef_de_partie = text(&turn["conversation"]).to_string();
-        let turn_columns = [short_id(&chef_de_partie), text(&turn["for"]).to_string(), waiting(&turn["waiting"]), text(&turn["doing"]).to_string()];
-        let brigade = listed(&turn["commis"]);
-        if brigade.is_empty() {
-            let [chef_de_partie, running, waiting, title] = turn_columns.clone();
-            now.going_on.push([chef_de_partie, running, waiting, title, String::new(), String::new(), String::new(), String::new()]);
-        }
-        let mut about = ChefDePartieNow {
+        let commis = listed(&turn["commis"]).iter().map(commis_of).collect();
+        let chef_de_partie = ChefDePartieNow {
             title: text(&turn["doing"]).to_string(),
             turn_for: turn["for"].as_str().map(String::from),
             waiting: waiting(&turn["waiting"]),
-            commis: Vec::new(),
+            commis,
         };
-        for (index, commis) in brigade.iter().enumerate() {
-            let [short, running, waiting, title] = if index == 0 { turn_columns.clone() } else { Default::default() };
-            let worktree = Path::new(text(&commis["project"])).file_name().map(|it| it.to_string_lossy().into_owned()).unwrap_or_default();
-            let station = commis["station"].as_str().unwrap_or(HERE).to_string();
-            about.commis.push([text(&commis["commis"]).to_string(), station.clone(), worktree.clone(), text(&commis["for"]).to_string()]);
-            now.going_on.push([short, running, waiting, title, text(&commis["commis"]).to_string(), station, worktree, text(&commis["for"]).to_string()]);
-        }
-        now.about.insert(chef_de_partie.clone(), about);
-        now.chefs_de_partie.push(chef_de_partie);
+        about.insert(text(&turn["conversation"]).to_string(), chef_de_partie);
     }
     for work in listed(&status["board"]) {
-        let chef_de_partie = text(&work["conversation"]).to_string();
-        now.claimed.push([short_id(&chef_de_partie), text(&work["doing"]).to_string()]);
-        now.about.insert(chef_de_partie.clone(), ChefDePartieNow { title: text(&work["doing"]).to_string(), ..ChefDePartieNow::default() });
-        now.chefs_de_partie.push(chef_de_partie);
+        about.insert(text(&work["conversation"]).to_string(), ChefDePartieNow { title: text(&work["doing"]).to_string(), ..ChefDePartieNow::default() });
     }
-    now
+
+    let mut stations: Vec<StationNow> = std::iter::once(HERE)
+        .chain(listed(&status["stations"]).iter().map(text))
+        .map(|name| StationNow { name: name.to_string(), commis: Vec::new() })
+        .collect();
+    for (chef_de_partie, it) in &about {
+        for [commis, station, worktree, taken] in &it.commis {
+            let at = match stations.iter().position(|it| &it.name == station) {
+                Some(at) => at,
+                None => {
+                    stations.push(StationNow { name: station.clone(), commis: Vec::new() });
+                    stations.len() - 1
+                }
+            };
+            stations[at].commis.push([commis.clone(), short_id(chef_de_partie), worktree.clone(), taken.clone()]);
+        }
+    }
+
+    Now {
+        rows: about
+            .iter()
+            .map(|(chef_de_partie, it)| [short_id(chef_de_partie), it.turn_for.clone().unwrap_or_default(), it.waiting.clone(), it.title.clone(), where_its_commis_are(&it.commis)])
+            .collect(),
+        stations,
+        chefs_de_partie: about.keys().cloned().collect(),
+        about: about.into_iter().collect(),
+    }
+}
+
+fn commis_of(commis: &Value) -> [String; 4] {
+    let worktree = Path::new(text(&commis["project"])).file_name().map(|it| it.to_string_lossy().into_owned()).unwrap_or_default();
+    let station = commis["station"].as_str().unwrap_or(HERE).to_string();
+    [text(&commis["commis"]).to_string(), station, worktree, text(&commis["for"]).to_string()]
+}
+
+/// `1 here`, `2 at server`, `1 here · 1 at server`: how many commis a chef de
+/// partie has out, and where, in the order they were sent.
+fn where_its_commis_are(commis: &[[String; 4]]) -> String {
+    let mut counted: Vec<(&str, usize)> = Vec::new();
+    for [_, station, _, _] in commis {
+        match counted.iter_mut().find(|(it, _)| it == station) {
+            Some((_, count)) => *count += 1,
+            None => counted.push((station, 1)),
+        }
+    }
+    counted
+        .into_iter()
+        .map(|(station, count)| {
+            if station == HERE {
+                format!("{count} here")
+            } else {
+                format!("{count} at {station}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" · ")
 }
 
 fn listed(value: &Value) -> &[Value] {
@@ -320,9 +370,15 @@ mod tests {
     }
 
     #[test]
-    fn status_becomes_rows_with_commis_and_their_stations_under_their_chef_de_partie() {
+    fn status_becomes_one_row_per_chef_de_partie_by_name_and_its_commis_under_their_stations() {
         let status = json!({
             "going_on": [{
+                "conversation": "basecamp-card-3",
+                "for": "1m",
+                "waiting": 0,
+                "doing": null,
+                "commis": [],
+            }, {
                 "conversation": "basecamp-card-1",
                 "for": "14m",
                 "waiting": 3,
@@ -331,28 +387,33 @@ mod tests {
                     { "commis": "h18d9", "project": "/srv/worktrees/login-fix", "station": null, "for": "13m" },
                     { "commis": "h18da", "project": "/srv/worktrees/login-docs", "station": "server", "for": "2m" },
                 ],
-            }, {
-                "conversation": "basecamp-card-3",
-                "for": "1m",
-                "waiting": 0,
-                "doing": null,
-                "commis": [],
             }],
             "board": [{ "conversation": "basecamp-card-2", "doing": "Waiting on review" }],
+            "stations": ["build-box", "server"],
         });
 
-        let row = |cells: [&str; 8]| cells.map(String::from);
+        let row = |cells: [&str; 5]| cells.map(String::from);
         let now = now_of(&status);
         assert_eq!(
-            now.going_on,
+            now.rows,
             vec![
-                row(["basecamp-card-1", "14m", "3", "Fixing the login", "h18d9", "here", "login-fix", "13m"]),
-                row(["", "", "", "", "h18da", "server", "login-docs", "2m"]),
-                row(["basecamp-card-3", "1m", "", "-", "", "", "", ""]),
-            ]
+                row(["basecamp-card-1", "14m", "3", "Fixing the login", "1 here · 1 at server"]),
+                row(["basecamp-card-2", "", "", "Waiting on review", ""]),
+                row(["basecamp-card-3", "1m", "", "-", ""]),
+            ],
+            "running and claimed alike, by name, so a turn starting or ending moves nothing"
         );
-        assert_eq!(now.claimed, vec![["basecamp-card-2".to_string(), "Waiting on review".to_string()]]);
-        assert_eq!(now.chefs_de_partie, ["basecamp-card-1", "basecamp-card-3", "basecamp-card-2"]);
+        assert_eq!(now.chefs_de_partie, ["basecamp-card-1", "basecamp-card-2", "basecamp-card-3"]);
+        let station = |name: &str, commis: Vec<[&str; 4]>| StationNow { name: name.to_string(), commis: commis.into_iter().map(|it| it.map(String::from)).collect() };
+        assert_eq!(
+            now.stations,
+            vec![
+                station("here", vec![["h18d9", "basecamp-card-1", "login-fix", "13m"]]),
+                station("build-box", vec![]),
+                station("server", vec![["h18da", "basecamp-card-1", "login-docs", "2m"]]),
+            ],
+            "here first, then every station, the idle one too"
+        );
         assert_eq!(
             now.about["basecamp-card-1"],
             ChefDePartieNow {
@@ -363,6 +424,15 @@ mod tests {
             }
         );
         assert_eq!(now.about["basecamp-card-2"], ChefDePartieNow { title: "Waiting on review".to_string(), ..ChefDePartieNow::default() }, "a chef de partie between turns has no turn running");
-        assert_eq!(now_of(&json!({})), Now::default());
+        assert_eq!(now_of(&json!({})).stations, vec![station("here", vec![])], "with nothing going on, here is still there");
+    }
+
+    #[test]
+    fn a_station_a_commis_names_that_is_not_listed_still_gets_shown() {
+        let status = json!({
+            "going_on": [{ "conversation": "basecamp-card-1", "commis": [{ "commis": "h1", "project": "/srv/shop", "station": "old-box", "for": "5m" }] }],
+        });
+        let names: Vec<String> = now_of(&status).stations.into_iter().map(|it| it.name).collect();
+        assert_eq!(names, ["here", "old-box"]);
     }
 }

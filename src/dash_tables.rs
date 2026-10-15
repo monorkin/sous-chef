@@ -1,5 +1,5 @@
-//! The dashboard's tables: Claude accounts and Jev in the left column, what
-//! is going on and what is claimed in the right. Every column gets a width
+//! The dashboard's tables: Claude accounts and Jev, each station's commis,
+//! and every chef de partie that is busy or has work claimed. Every column gets a width
 //! here, and text too long for its column is cut with an ellipsis rather
 //! than stopped mid-word at the edge.
 
@@ -8,7 +8,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Cell, Row, Table};
 
-use crate::dash_data::{Account, HERE, Limit, Now};
+use crate::dash_data::{Account, HERE, Limit, Now, StationNow};
 
 const SPACING: u16 = 1;
 const PERCENT: u16 = 7;
@@ -16,10 +16,16 @@ const RESETS: u16 = 7;
 const CHEF_DE_PARTIE: u16 = 18;
 const RUNNING: u16 = 7;
 const WAITING: u16 = 7;
-const COMMIS: u16 = 17;
-const STATION: u16 = 12;
-const WORKTREE: u16 = 14;
-const COMMIS_RUNNING: u16 = 10;
+/// A commis by the end of its id, which tells it apart from the others on
+/// its station well enough and leaves the worktree its room.
+const COMMIS: u16 = 8;
+const WORKTREE: u16 = 12;
+/// Where a chef de partie's commis are: `1 here · 2 at server`.
+const WHERE: u16 = 28;
+
+/// The narrowest a station's box gets, borders and all, before the next one
+/// goes on a row below rather than beside it.
+pub const STATION_WIDTH: u16 = COMMIS + CHEF_DE_PARTIE + WORKTREE + RUNNING + 3 * SPACING + 2;
 
 /// Room for the Jev table beside the accounts.
 pub const JEV_WIDTH: u16 = 36;
@@ -48,43 +54,96 @@ pub fn jev(rows: &[[String; 2]]) -> Table<'static> {
         .column_spacing(SPACING)
 }
 
-pub fn going_on(now: &Now, width: u16) -> Table<'static> {
-    let fixed = CHEF_DE_PARTIE + RUNNING + WAITING + COMMIS + STATION + WORKTREE + COMMIS_RUNNING + 7 * SPACING;
-    let title = width.saturating_sub(fixed).max(8);
-    let widths = [CHEF_DE_PARTIE, RUNNING, WAITING, title, COMMIS, STATION, WORKTREE, COMMIS_RUNNING];
+/// Every chef de partie that is busy or has work claimed, one row each, with
+/// how long its turn has run left empty between turns.
+pub fn chefs_de_partie(now: &Now, width: u16) -> Table<'static> {
+    let title = width.saturating_sub(CHEF_DE_PARTIE + RUNNING + WAITING + WHERE + 4 * SPACING).max(8);
+    let widths = [CHEF_DE_PARTIE, RUNNING, WAITING, title, WHERE];
 
-    let rows: Vec<Row> = if now.going_on.is_empty() {
-        vec![Row::new(["Nothing going on right now."])]
+    let rows: Vec<Row> = if now.rows.is_empty() {
+        vec![Row::new(["Nothing going on or claimed."])]
     } else {
-        now.going_on
-            .iter()
-            .map(|row| Row::new(row.iter().zip(widths).zip(GOING_ON_STYLES).map(|((text, width), style)| Cell::from(ellipsized(text, width as usize)).style(style(text)))))
-            .collect()
+        now.rows.iter().map(|row| styled_row(row, widths, CHEF_DE_PARTIE_STYLES)).collect()
     };
     Table::new(rows, widths.map(Constraint::Length))
-        .header(bold_row(["Chef de partie", "For", "Waiting", "Title", "Commis", "Station", "Worktree", "Commis for"].map(String::from)))
-        .block(Block::new().title(heading("Going on now")))
+        .header(bold_row(["Chef de partie", "Turn", "Waiting", "Title", "Commis"].map(String::from)))
         .column_spacing(SPACING)
 }
 
-pub fn claimed(now: &Now, width: u16) -> Table<'static> {
-    let title = width.saturating_sub(CHEF_DE_PARTIE + SPACING).max(8);
-    let rows: Vec<Row> = if now.claimed.is_empty() {
-        vec![Row::new(["Nothing claimed."])]
+/// Who is at work on one station: its commis, whose they are, where, and
+/// for how long, in as many lines as `height`, the last one saying how many
+/// more there are when they don't all fit.
+pub fn station(station: &StationNow, width: u16, height: u16) -> Table<'static> {
+    let worktree = width.saturating_sub(COMMIS + CHEF_DE_PARTIE + RUNNING + 3 * SPACING).max(6);
+    let widths = [COMMIS, CHEF_DE_PARTIE, worktree, RUNNING];
+
+    let rows: Vec<Row> = station_lines(&station.commis, height as usize)
+        .into_iter()
+        .map(|line| match line {
+            StationLine::Idle => Row::new(["Idle"]).style(Style::new().add_modifier(Modifier::DIM)),
+            StationLine::Commis([commis, chef_de_partie, worktree, taken]) => {
+                styled_row(&[last_of(&commis, COMMIS as usize), chef_de_partie, worktree, taken], widths, STATION_STYLES)
+            }
+            StationLine::More(more) => Row::new([format!("+{more} more")]).style(Style::new().add_modifier(Modifier::DIM)),
+        })
+        .collect();
+    Table::new(rows, widths.map(Constraint::Length)).column_spacing(SPACING)
+}
+
+#[derive(Debug, PartialEq)]
+enum StationLine {
+    Idle,
+    Commis([String; 4]),
+    More(usize),
+}
+
+fn station_lines(commis: &[[String; 4]], height: usize) -> Vec<StationLine> {
+    let height = height.max(1);
+    if commis.is_empty() {
+        vec![StationLine::Idle]
+    } else if commis.len() <= height {
+        commis.iter().cloned().map(StationLine::Commis).collect()
     } else {
-        now.claimed
-            .iter()
-            .map(|[chef_de_partie, doing]| Row::new([Cell::from(ellipsized(chef_de_partie, CHEF_DE_PARTIE as usize)).style(chef_de_partie_style(chef_de_partie)), Cell::from(ellipsized(doing, title as usize))]))
-            .collect()
-    };
-    Table::new(rows, [Constraint::Length(CHEF_DE_PARTIE), Constraint::Length(title)])
-        .header(bold_row(["Chef de partie", "Title"].map(String::from)))
-        .block(Block::new().title(heading("Claimed, between turns")))
-        .column_spacing(SPACING)
+        let shown = height - 1;
+        let mut lines: Vec<StationLine> = commis.iter().take(shown).cloned().map(StationLine::Commis).collect();
+        lines.push(StationLine::More(commis.len() - shown));
+        lines
+    }
 }
 
-/// How each column of "Going on now" is coloured, by what is in it.
-const GOING_ON_STYLES: [fn(&str) -> Style; 8] = [chef_de_partie_style, age_style, waiting_style, plain_style, commis_style, station_style, worktree_style, age_style];
+/// The last `count` characters of `text`.
+fn last_of(text: &str, count: usize) -> String {
+    let skip = text.chars().count().saturating_sub(count);
+    text.chars().skip(skip).collect()
+}
+
+/// A station's box: its name in the colour of where it is, and how many
+/// commis are at work on it.
+pub fn station_block(station: &StationNow) -> Block<'static> {
+    let busy = match station.commis.len() {
+        0 => "idle".to_string(),
+        1 => "1 commis".to_string(),
+        many => format!("{many} commis"),
+    };
+    let border = if station.commis.is_empty() {
+        Style::new().fg(Color::DarkGray)
+    } else {
+        station_style(&station.name)
+    };
+    Block::bordered()
+        .border_style(border)
+        .title(Line::from(vec![Span::styled(format!(" {} ", station.name), station_style(&station.name)), Span::styled(format!("· {busy} "), Style::new().add_modifier(Modifier::DIM))]))
+}
+
+fn styled_row<const N: usize>(cells: &[String; N], widths: [u16; N], styles: [fn(&str) -> Style; N]) -> Row<'static> {
+    Row::new(cells.iter().zip(widths).zip(styles).map(|((text, width), style)| Cell::from(ellipsized(text, width as usize)).style(style(text))))
+}
+
+/// How each column of the chefs de partie is coloured, by what is in it.
+const CHEF_DE_PARTIE_STYLES: [fn(&str) -> Style; 5] = [chef_de_partie_style, age_style, waiting_style, plain_style, where_style];
+
+/// And each column of a station's box.
+const STATION_STYLES: [fn(&str) -> Style; 4] = [commis_style, chef_de_partie_style, worktree_style, age_style];
 
 fn chef_de_partie_style(_: &str) -> Style {
     Style::new().fg(Color::Cyan)
@@ -122,6 +181,15 @@ fn station_style(station: &str) -> Style {
         Style::new().add_modifier(Modifier::DIM)
     } else {
         Style::new().fg(Color::Blue).add_modifier(Modifier::BOLD)
+    }
+}
+
+/// Commis that are all here stay quiet; any away at a station stand out.
+fn where_style(commis: &str) -> Style {
+    if commis.contains(" at ") {
+        Style::new().fg(Color::Blue).add_modifier(Modifier::BOLD)
+    } else {
+        Style::new().add_modifier(Modifier::DIM)
     }
 }
 
@@ -191,7 +259,7 @@ fn heading(text: &'static str) -> Line<'static> {
 
 /// `text` as it fits in `width` characters: whole, or cut with an ellipsis
 /// as its last one.
-fn ellipsized(text: &str, width: usize) -> String {
+pub fn ellipsized(text: &str, width: usize) -> String {
     if text.chars().count() <= width {
         text.to_string()
     } else if width == 0 {
@@ -238,9 +306,23 @@ mod tests {
     }
 
     #[test]
+    fn a_station_shows_what_fits_and_says_how_many_more_there_are() {
+        let commis: Vec<[String; 4]> = (1..=4).map(|it| [format!("h{it}"), "basecamp-card-1".to_string(), "shop".to_string(), "2m".to_string()]).collect();
+        assert_eq!(station_lines(&[], 3), [StationLine::Idle]);
+        assert_eq!(station_lines(&commis[..2], 3).len(), 2, "all of them, when they fit");
+        let lines = station_lines(&commis, 3);
+        assert_eq!(lines[..2], [StationLine::Commis(commis[0].clone()), StationLine::Commis(commis[1].clone())]);
+        assert_eq!(lines[2], StationLine::More(2), "the last line counts the rest");
+        assert_eq!(last_of("h18deb1c1c846bd63", 8), "c846bd63");
+        assert_eq!(last_of("h1", 8), "h1");
+    }
+
+    #[test]
     fn a_commis_away_at_a_station_stands_out_and_one_here_does_not() {
         assert_eq!(station_style("server").fg, Some(Color::Blue));
         assert_eq!(station_style(HERE).fg, None);
+        assert_eq!(where_style("1 here · 1 at server").fg, Some(Color::Blue), "a chef de partie with any commis away stands out");
+        assert_eq!(where_style("2 here").fg, None);
     }
 
     #[test]

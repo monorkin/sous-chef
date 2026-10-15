@@ -1,5 +1,6 @@
-//! `sous-chef dash`: her tabs in one terminal. The overview has what is going on
-//! now and the end of her log; the chat tells a chef de partie something the
+//! `sous-chef dash`: her tabs in one terminal. The overview has each station
+//! and the commis at work on it, over every chef de partie that is busy or
+//! has work claimed; the log tab reads her log; the chat tells a chef de partie something the
 //! way `sous-chef tell` does, with what that chef de partie is doing above;
 //! the memory tab
 //! reads, archives and brings back what she has learned; usage has her
@@ -47,12 +48,13 @@ pub fn run() -> Result<()> {
 enum Tab {
     #[default]
     Overview,
+    Log,
     Chat,
     Memory,
     Usage,
 }
 
-const TABS: [Tab; 4] = [Tab::Overview, Tab::Chat, Tab::Memory, Tab::Usage];
+const TABS: [Tab; 5] = [Tab::Overview, Tab::Log, Tab::Chat, Tab::Memory, Tab::Usage];
 
 impl Tab {
     fn index(self) -> usize {
@@ -62,6 +64,7 @@ impl Tab {
     fn name(self) -> &'static str {
         match self {
             Tab::Overview => "Overview",
+            Tab::Log => "Log",
             Tab::Chat => "Chat",
             Tab::Memory => "Memory",
             Tab::Usage => "Usage",
@@ -70,10 +73,11 @@ impl Tab {
 
     fn help(self) -> &'static str {
         match self {
-            Tab::Overview => "Tab or 1-4 switch tabs · ↑↓ PgUp/PgDn read back through the log · q quit",
+            Tab::Overview => "Tab or 1-5 switch tabs · q quit",
+            Tab::Log => "Tab or 1-5 switch tabs · ↑↓ PgUp/PgDn read back through the log · q quit",
             Tab::Chat => "Tab switches tabs · ↑↓ pick a chef de partie · Enter send · PgUp/PgDn read back · Esc leave",
-            Tab::Memory => "Tab or 1-4 switch tabs · ↑↓ pick · PgUp/PgDn read on · a archive · u bring back · q quit",
-            Tab::Usage => "Tab or 1-4 switch tabs · q quit",
+            Tab::Memory => "Tab or 1-5 switch tabs · ↑↓ pick · PgUp/PgDn read on · a archive · u bring back · q quit",
+            Tab::Usage => "Tab or 1-5 switch tabs · q quit",
         }
     }
 }
@@ -163,12 +167,12 @@ impl Dash {
             KeyCode::BackTab => self.tab = TABS[(self.tab.index() + TABS.len() - 1) % TABS.len()],
             _ if self.tab == Tab::Chat => return self.chat.press(key.code, &self.chefs_de_partie()),
             KeyCode::Char('q') => self.quitting = true,
-            KeyCode::Char(digit @ '1'..='4') => self.tab = TABS[digit as usize - '1' as usize],
+            KeyCode::Char(digit @ '1'..='5') => self.tab = TABS[digit as usize - '1' as usize],
             _ if self.tab == Tab::Memory => return self.memories.press(key.code, memory_rows_of(&self.snapshot)),
-            KeyCode::Up | KeyCode::Char('k') if self.tab == Tab::Overview => self.log_back = self.log_back.saturating_add(1),
-            KeyCode::Down | KeyCode::Char('j') if self.tab == Tab::Overview => self.log_back = self.log_back.saturating_sub(1),
-            KeyCode::PageUp if self.tab == Tab::Overview => self.log_back = self.log_back.saturating_add(10),
-            KeyCode::PageDown if self.tab == Tab::Overview => self.log_back = self.log_back.saturating_sub(10),
+            KeyCode::Up | KeyCode::Char('k') if self.tab == Tab::Log => self.log_back = self.log_back.saturating_add(1),
+            KeyCode::Down | KeyCode::Char('j') if self.tab == Tab::Log => self.log_back = self.log_back.saturating_sub(1),
+            KeyCode::PageUp if self.tab == Tab::Log => self.log_back = self.log_back.saturating_add(10),
+            KeyCode::PageDown if self.tab == Tab::Log => self.log_back = self.log_back.saturating_sub(10),
             _ => {}
         }
         Effect::Nothing
@@ -187,7 +191,8 @@ impl Dash {
             return frame.render_widget(Paragraph::new("Looking…"), body);
         };
         match self.tab {
-            Tab::Overview => self.draw_overview(frame, body, snapshot),
+            Tab::Overview => draw_overview(frame, body, snapshot),
+            Tab::Log => self.draw_log(frame, body, snapshot),
             Tab::Chat => {
                 let about = self.chat.chef_de_partie.as_ref().and_then(|chef_de_partie| snapshot.now.as_ref().ok()?.about.get(chef_de_partie));
                 self.chat.draw(frame, body, about);
@@ -205,26 +210,66 @@ impl Dash {
             .divider("·")
     }
 
-    fn draw_overview(&self, frame: &mut Frame, area: Rect, snapshot: &Snapshot) {
-        let [now, log] = Layout::vertical([Constraint::Fill(1), Constraint::Fill(1)]).areas(area);
-
-        let block = framed("Now");
-        let inner = block.inner(now);
-        frame.render_widget(block, now);
-        match &snapshot.now {
-            Ok(now) => {
-                let [going_on, claimed] = Layout::vertical([Constraint::Length(now.going_on.len().max(1) as u16 + 3), Constraint::Min(0)]).areas(inner);
-                frame.render_widget(dash_tables::going_on(now, going_on.width), going_on);
-                frame.render_widget(dash_tables::claimed(now, claimed.width), claimed);
-            }
-            Err(why) => frame.render_widget(Paragraph::new(why.as_str()), inner),
-        }
-
+    fn draw_log(&self, frame: &mut Frame, area: Rect, snapshot: &Snapshot) {
         let block = framed("Log");
-        let inner = block.inner(log);
-        frame.render_widget(block, log);
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
         let shown = window_of(&snapshot.log, inner.height as usize, self.log_back as usize);
         frame.render_widget(Paragraph::new(shown.iter().map(|it| line_of(it)).collect::<Vec<_>>()), inner);
+    }
+}
+
+/// The stations in a grid of boxes, each with the commis at work on it, over
+/// the chefs de partie.
+fn draw_overview(frame: &mut Frame, area: Rect, snapshot: &Snapshot) {
+    let now = match &snapshot.now {
+        Ok(now) => now,
+        Err(why) => return frame.render_widget(Paragraph::new(why.as_str()).block(framed("Now")), area),
+    };
+
+    let busiest = now.stations.iter().map(|it| it.commis.len()).max().unwrap_or_default();
+    let grid = Grid::of(now.stations.len(), busiest, area);
+    let [stations, chefs_de_partie] = Layout::vertical([Constraint::Length(grid.height()), Constraint::Fill(1)]).areas(area);
+    let rows = Layout::vertical((0..grid.rows).map(|_| Constraint::Length(grid.lines + 2))).split(stations);
+    for (row, at) in now.stations.chunks(grid.across).zip(rows.iter()) {
+        let boxes = Layout::horizontal((0..grid.across).map(|_| Constraint::Fill(1))).split(*at);
+        for (station, at) in row.iter().zip(boxes.iter()) {
+            let block = dash_tables::station_block(station);
+            let inner = block.inner(*at);
+            frame.render_widget(block, *at);
+            frame.render_widget(dash_tables::station(station, inner.width, inner.height), inner);
+        }
+    }
+
+    let block = framed("Chefs de partie");
+    let inner = block.inner(chefs_de_partie);
+    frame.render_widget(block, chefs_de_partie);
+    frame.render_widget(dash_tables::chefs_de_partie(now, inner.width), inner);
+}
+
+/// How the stations' boxes are laid out: as many side by side as fit at
+/// their narrowest, in as many rows as that takes, each box as tall as the
+/// busiest station's commis but all of them together no more than a third
+/// of the screen, so the chefs de partie keep the rest.
+#[derive(Debug, PartialEq)]
+struct Grid {
+    across: usize,
+    rows: u16,
+    /// Lines inside each box.
+    lines: u16,
+}
+
+impl Grid {
+    fn of(stations: usize, busiest: usize, area: Rect) -> Grid {
+        let stations = stations.max(1);
+        let across = ((area.width / dash_tables::STATION_WIDTH).max(1) as usize).min(stations);
+        let rows = stations.div_ceil(across) as u16;
+        let room = (area.height / 3 / rows).saturating_sub(2).max(1);
+        Grid { across, rows, lines: (busiest.max(1) as u16).min(room) }
+    }
+
+    fn height(&self) -> u16 {
+        self.rows * (self.lines + 2)
     }
 }
 
@@ -285,19 +330,21 @@ mod tests {
         assert_eq!(dash.tab, Tab::Overview);
         assert_eq!(dash.chat.chef_de_partie.as_deref(), Some("basecamp-card-1"), "the first busy chef de partie is picked to begin with");
 
-        dash.press(key(KeyCode::Char('3')));
+        dash.press(key(KeyCode::Char('2')));
+        assert_eq!(dash.tab, Tab::Log);
+        dash.press(key(KeyCode::Char('4')));
         assert_eq!(dash.tab, Tab::Memory);
         dash.press(key(KeyCode::BackTab));
         assert_eq!(dash.tab, Tab::Chat);
 
         dash.press(key(KeyCode::Char('q')));
-        dash.press(key(KeyCode::Char('4')));
+        dash.press(key(KeyCode::Char('5')));
         assert!(!dash.quitting, "in the chat a q is part of the message");
         assert_eq!(dash.tab, Tab::Chat, "and so is a digit");
         dash.press(key(KeyCode::Tab));
         assert_eq!(dash.tab, Tab::Memory, "Tab leaves the chat");
 
-        let effect = dash.press(key(KeyCode::Char('2')));
+        let effect = dash.press(key(KeyCode::Char('3')));
         dash.act_on(effect);
         let effect = dash.press(key(KeyCode::Esc));
         dash.act_on(effect);
@@ -308,8 +355,11 @@ mod tests {
     }
 
     #[test]
-    fn the_overview_reads_back_through_the_log() {
+    fn the_log_tab_reads_back_through_the_log() {
         let mut dash = dash_with(&[], Vec::new());
+        dash.press(key(KeyCode::Up));
+        assert_eq!(dash.log_back, 0, "the overview doesn't scroll the log it no longer shows");
+        dash.press(key(KeyCode::Char('2')));
         dash.press(key(KeyCode::Up));
         dash.press(key(KeyCode::PageUp));
         assert_eq!(dash.log_back, 11, "up the log is further back from its end");
@@ -318,6 +368,16 @@ mod tests {
         dash.press(key(KeyCode::PageDown));
         dash.press(key(KeyCode::Down));
         assert_eq!(dash.log_back, 0, "scrolling stops at the newest line");
+    }
+
+    #[test]
+    fn stations_go_side_by_side_while_they_fit_and_wrap_onto_rows_when_they_dont() {
+        let screen = |width, height| Rect { x: 0, y: 0, width, height };
+        assert_eq!(Grid::of(2, 1, screen(140, 45)), Grid { across: 2, rows: 1, lines: 1 });
+        assert_eq!(Grid::of(3, 1, screen(140, 45)), Grid { across: 2, rows: 2, lines: 1 }, "a third station goes on a row of its own");
+        assert_eq!(Grid::of(3, 1, screen(200, 45)), Grid { across: 3, rows: 1, lines: 1 }, "a wider screen takes all three");
+        assert_eq!(Grid::of(1, 0, screen(40, 45)), Grid { across: 1, rows: 1, lines: 1 }, "an idle station still gets a line to say so");
+        assert_eq!(Grid::of(2, 30, screen(140, 45)).height(), 15, "a busy station takes no more than a third of the screen");
     }
 
     #[test]
@@ -334,7 +394,7 @@ mod tests {
             updated: "2026-10-02T08:00:00Z".to_string(),
         };
         let mut dash = dash_with(&[], vec![memory("aaaa1111"), memory("bbbb2222")]);
-        dash.press(key(KeyCode::Char('3')));
+        dash.press(key(KeyCode::Char('4')));
         dash.press(key(KeyCode::Down));
         assert_eq!(dash.press(key(KeyCode::Char('a'))), Effect::Archive { id: "bbbb2222".to_string() });
 

@@ -7,7 +7,6 @@
 //! anywhere, so it is written down here while it happens and read back
 //! whole by `sous-chef status`.
 
-use std::cmp::Reverse;
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -71,15 +70,16 @@ impl AtWork {
         }
     }
 
-    /// Every conversation with something going, the longest-running turn
-    /// first and those between turns last, with the clock already read so
-    /// the caller doesn't hold the locks to do it.
+    /// Every conversation with something going, by name, with the clock
+    /// already read so the caller doesn't hold the locks to do it. By name
+    /// rather than by how long each has run, because turns start and end
+    /// every few seconds and a list in that order never holds still.
     pub fn going_on(&self) -> Vec<Going> {
         let now = Instant::now();
         let turns = self.turns.lock().unwrap();
         let brigade = self.commis.lock().unwrap();
         let conversations: BTreeSet<&String> = turns.keys().chain(brigade.keys()).collect();
-        let mut going: Vec<Going> = conversations
+        conversations
             .into_iter()
             .map(|conversation| Going {
                 conversation: conversation.clone(),
@@ -97,9 +97,7 @@ impl AtWork {
                     })
                     .collect(),
             })
-            .collect();
-        going.sort_by_key(|going| Reverse(going.taken));
-        going
+            .collect()
     }
 }
 
@@ -151,6 +149,20 @@ mod tests {
 
         at_work.commis_ended("basecamp-one", "h2");
         assert!(at_work.going_on().is_empty());
+    }
+
+    #[test]
+    fn what_is_going_on_holds_its_order_by_name_whatever_starts_or_ends() {
+        let at_work = Arc::new(AtWork::default());
+        at_work.commis_began("basecamp-two", "h1", "/home/x/shop", None);
+        let longer = at_work.turn_began("basecamp-three");
+        let newer = at_work.turn_began("basecamp-one");
+
+        let names = |at_work: &AtWork| at_work.going_on().into_iter().map(|it| it.conversation).collect::<Vec<_>>();
+        assert_eq!(names(&at_work), ["basecamp-one", "basecamp-three", "basecamp-two"]);
+        drop(newer);
+        assert_eq!(names(&at_work), ["basecamp-three", "basecamp-two"], "what ended leaves, and the rest stay where they were");
+        drop(longer);
     }
 
     #[test]

@@ -1,5 +1,6 @@
 //! The dashboard's memory tab: every memory she has, archived ones dimmed,
-//! the picked one read in full beside the list, and archiving and bringing
+//! listed on top and the picked one read in full below, as a mailbox does,
+//! and archiving and bringing
 //! back from there the way `sous-chef memory archive` and `unarchive` do.
 
 use anyhow::Result;
@@ -13,6 +14,7 @@ use ratatui::widgets::{Block, Paragraph, Wrap};
 
 use crate::dash::Effect;
 use crate::dash_data::MemoryRow;
+use crate::dash_tables::ellipsized;
 
 #[derive(Default)]
 pub struct Memories {
@@ -60,7 +62,7 @@ impl Memories {
             Err(why) => return frame.render_widget(Paragraph::new(why.as_str()), area),
         };
         let picked = self.picked.min(rows.len() - 1);
-        let [list, _, shown] = Layout::horizontal([Constraint::Percentage(38), Constraint::Length(1), Constraint::Fill(1)]).areas(area);
+        let [list, shown, message] = Layout::vertical([Constraint::Percentage(40), Constraint::Fill(1), Constraint::Length(1)]).areas(area);
 
         let block = Block::bordered().border_style(Style::new().fg(Color::DarkGray)).title(Line::styled(
             format!(" {} memories, {} archived ", rows.len(), rows.iter().filter(|it| it.archived).count()),
@@ -70,10 +72,12 @@ impl Memories {
         frame.render_widget(block, list);
         let height = inner.height as usize;
         let first = picked.saturating_sub(height.saturating_sub(1));
-        let lines: Vec<Line> = rows.iter().enumerate().skip(first).take(height).map(|(index, row)| listed(row, index == picked)).collect();
+        let lines: Vec<Line> = rows.iter().enumerate().skip(first).take(height).map(|(index, row)| listed(row, index == picked, inner.width as usize)).collect();
         frame.render_widget(Paragraph::new(lines), inner);
 
-        let [memory, message] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(shown);
+        let block = Block::bordered().border_style(Style::new().fg(Color::DarkGray));
+        let memory = block.inner(shown);
+        frame.render_widget(block, shown);
         frame.render_widget(Paragraph::new(read(&rows[picked])).wrap(Wrap { trim: false }).scroll((self.down, 0)), memory);
         frame.render_widget(Paragraph::new(self.said.as_str()).style(Style::new().add_modifier(Modifier::DIM)), message);
     }
@@ -93,12 +97,18 @@ pub fn unarchive(id: &str) -> Result<String> {
     Ok(format!("Brought back “{}”.", memory.get(id)?.title))
 }
 
-fn listed(row: &MemoryRow, picked: bool) -> Line<'static> {
+/// One memory in the list, the way a mailbox lists a message: what kind it
+/// is, its title, and when it last changed at the right edge of `width`.
+fn listed(row: &MemoryRow, picked: bool, width: usize) -> Line<'static> {
     let mut style = if row.archived { Style::new().fg(Color::DarkGray) } else { Style::new() };
     if picked {
         style = style.add_modifier(Modifier::REVERSED);
     }
-    Line::from(vec![Span::styled(format!("{:<12} ", row.kind), style.add_modifier(Modifier::DIM)), Span::styled(row.title.clone(), style)])
+    let kind = format!("{:<12} ", row.kind);
+    let updated = format!(" {}", day_of(&row.updated));
+    let room = width.saturating_sub(kind.chars().count() + updated.chars().count());
+    let title = format!("{:<room$}", ellipsized(&row.title, room));
+    Line::from(vec![Span::styled(kind, style.add_modifier(Modifier::DIM)), Span::styled(title, style), Span::styled(updated, style.add_modifier(Modifier::DIM))])
 }
 
 /// The memory in full: its title, what it is and how much it's used, and
@@ -169,6 +179,12 @@ mod tests {
         assert_eq!(memories.press(KeyCode::Char('u'), &rows), Effect::Unarchive { id: "bbbb2222".to_string() });
         memories.press(KeyCode::Home, &rows);
         assert_eq!(memories.picked, 0);
+    }
+
+    #[test]
+    fn a_memory_is_listed_like_a_message_with_its_date_at_the_right_edge() {
+        assert_eq!(listed(&row("aaaa1111", false), false, 50).to_string(), "observation  Memory aaaa1111      2026-09-30 18:02");
+        assert_eq!(listed(&row("aaaa1111", false), false, 40).to_string(), "observation  Memory aa… 2026-09-30 18:02", "a long title gives way, the date doesn't");
     }
 
     #[test]
