@@ -6,6 +6,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::process::{Command, Stdio};
 
+use crate::claude;
 use crate::config::{self, Config, Waiter};
 use crate::github;
 use crate::taster::Taster;
@@ -13,7 +14,7 @@ use crate::mcp_cli;
 use crate::paths;
 use crate::secrets::{self, Kept};
 use crate::service;
-use crate::setup::{Account, ActsAs, Doing, Profile, own_tool_config, prose_of};
+use crate::setup::{Account, ActsAs, ClaudeAccount, Doing, Profile, own_tool_config, prose_of};
 
 pub struct Machine;
 
@@ -49,6 +50,22 @@ impl Doing for Machine {
 
     fn install_service(&mut self, agent: &str) -> Result<()> {
         service::install(agent, true)
+    }
+
+    fn claude_login(&mut self) -> Option<String> {
+        claude::logged_in_as()
+    }
+
+    fn chefs_claude_login(&mut self) -> Option<ClaudeAccount> {
+        claude::chefs_login()
+    }
+
+    fn log_in_to_claude(&mut self, email: Option<&str>) -> Result<String> {
+        claude::log_in(email)
+    }
+
+    fn keep_claude_login(&mut self) -> Result<()> {
+        claude::keep_login()
     }
 
     fn github_login(&mut self) -> Option<String> {

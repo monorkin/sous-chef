@@ -23,6 +23,7 @@ use crate::deadline;
 use crate::fsutil;
 use crate::logs;
 use crate::paths;
+use crate::setup::ClaudeAccount;
 
 #[derive(Debug, Deserialize)]
 pub struct Reply {
@@ -399,31 +400,63 @@ pub fn ask(model: &str, prompt: &str, text: &str) -> Result<String> {
 
 /// `claude auth login` in her own folder, at this terminal: the one time
 /// a person is needed. Nothing of the chef's own Claude folder is read.
-pub fn log_in() -> Result<()> {
+/// `email` is filled in on the login page when there is one. Answers with
+/// the address it logged in as.
+pub fn log_in(email: Option<&str>) -> Result<String> {
     let home = paths::claude_config_home();
     paths::make_private_dir(&home)?;
-    let status = Command::new(binary()?)
-        .args(["auth", "login"])
+    let mut command = Command::new(binary()?);
+    command.args(["auth", "login"]);
+    if let Some(email) = email {
+        command.args(["--email", email]);
+    }
+    let status = command
         .env("CLAUDE_CONFIG_DIR", &home)
         .status()
         .context("could not run claude")?;
     if !status.success() {
         bail!("claude didn't finish logging in");
     }
-    println!("{}", login());
-    println!("`sous-chef claude account add --alias <name>` keeps this login in the rotation.");
-    Ok(())
+    logged_in_as().context("claude finished, but wrote no login down")
+}
+
+/// The login she works as joins the accounts she rotates between, or
+/// refreshes the one it already is.
+pub fn keep_login() -> Result<()> {
+    ax::account::add(None, None, None)
 }
 
 /// Who she is to Claude right now, for `sous-chef status`: the login in the
 /// config folder she works from, which is the allowance she is spending.
 pub fn login() -> String {
     let home = paths::claude_config_home();
-    let account = read_json(&home.join(".claude.json")).ok().map(|it| it["oauthAccount"].clone()).unwrap_or_default();
-    match account["emailAddress"].as_str() {
+    match logged_in_as() {
         Some(address) => format!("{address} ({})", home.display()),
         None => format!("nobody is logged in under {}", home.display()),
     }
+}
+
+/// The address her own Claude folder is logged in as, if it is.
+pub fn logged_in_as() -> Option<String> {
+    let account = read_json(&paths::claude_config_home().join(".claude.json")).ok()?;
+    account["oauthAccount"]["emailAddress"].as_str().map(str::to_string)
+}
+
+/// The account the chef's own Claude Code is logged in to: where their
+/// shell's `CLAUDE_CONFIG_DIR` says, or Claude Code's default.
+pub fn chefs_login() -> Option<ClaudeAccount> {
+    let path = match std::env::var_os("CLAUDE_CONFIG_DIR") {
+        Some(dir) => PathBuf::from(dir).join(".claude.json"),
+        None => ax::paths::default_global_config_path(),
+    };
+    account_in(&read_json(&path).ok()?)
+}
+
+fn account_in(config: &Value) -> Option<ClaudeAccount> {
+    let account = &config["oauthAccount"];
+    let email = account["emailAddress"].as_str().filter(|it| !it.is_empty())?;
+    let organization = account["organizationName"].as_str().filter(|it| !it.is_empty());
+    Some(ClaudeAccount { email: email.to_string(), organization: organization.map(str::to_string) })
 }
 
 /// How long one shell command of hers may run: a code review or a test
@@ -742,5 +775,20 @@ mod tests {
             json!({ "claudeAiOauth": { "accessToken": "access", "expiresAt": 1, "scopes": ["user:inference"] } })
         );
         assert!(access_only(&json!({})).is_err());
+    }
+
+    #[test]
+    fn the_chefs_account_is_named_by_its_address_and_organization() {
+        let config = json!({ "oauthAccount": { "emailAddress": "marta@example.com", "organizationName": "Shop" } });
+        assert_eq!(
+            account_in(&config),
+            Some(ClaudeAccount { email: "marta@example.com".to_string(), organization: Some("Shop".to_string()) })
+        );
+
+        let personal = json!({ "oauthAccount": { "emailAddress": "marta@example.com", "organizationName": "" } });
+        assert_eq!(account_in(&personal).unwrap().organization, None);
+
+        assert_eq!(account_in(&json!({ "oauthAccount": { "emailAddress": "" } })), None, "logged out");
+        assert_eq!(account_in(&json!({})), None, "never logged in");
     }
 }

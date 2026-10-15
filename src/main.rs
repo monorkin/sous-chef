@@ -355,7 +355,12 @@ fn run(cli: Cli) -> Result<()> {
             GithubCommand::Login { email } => github_login(email),
         },
         Command::Claude { command } => match command {
-            ClaudeCommand::Login => claude::log_in(),
+            ClaudeCommand::Login => {
+                claude::log_in(None)?;
+                println!("{}", claude::login());
+                println!("`sous-chef claude account add --alias <name>` keeps this login in the rotation.");
+                Ok(())
+            }
             ClaudeCommand::Account { command } => ax::cli::run(ax::cli::Cli {
                 command: ax::cli::Command::Account { command },
             }),

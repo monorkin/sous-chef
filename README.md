@@ -34,7 +34,7 @@ omarchy-mise-install github:monorkin/sous-chef sous-chef
 ```
 
 Once installed, start the setup. It guides you through everything, including
-what the agent is called:
+what the agent is called and logging it in to Claude with an account of its own:
 
 ```bash
 sous-chef setup
@@ -80,6 +80,7 @@ sous-chef station check server
 sous-chef station remove server
 
 # Claude accounts: the subscriptions it rotates between
+sous-chef claude login                         # log the agent in again, in the browser; setup does this the first time
 sous-chef claude account add                   # add the current Claude Code account to the rotation
 sous-chef claude account remove email@example.com
 sous-chef claude account list
