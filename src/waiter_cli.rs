@@ -1,4 +1,4 @@
-//! `sous-chef printer …`: looking at a printer without acting on it.
+//! `sous-chef waiter …`: looking at a waiter without acting on it.
 
 use anyhow::{Context, Result};
 use std::sync::Arc;
@@ -7,42 +7,42 @@ use crate::config::{self, Config};
 use crate::held::HeldBack;
 use crate::mcp::Catalog;
 use crate::plating::Plating;
-use crate::printer::{self, Position};
+use crate::waiter::{self, Position};
 use crate::taster::Taster;
 
 const LONGEST_SHOWN: usize = 70;
 
-/// Calls the printer's watch tool once and shows what she would make of the
+/// Calls the waiter's watch tool once and shows what she would make of the
 /// answer: which messages she finds, who she thinks sent them, and whether
 /// she listens to that person. Nothing is remembered and nobody is woken, so
 /// it is safe to run while the pointers are still being worked out.
 pub fn check(name: &str) -> Result<()> {
     let config = Config::load()?;
-    let printer = config
-        .printers
+    let waiter = config
+        .waiters
         .get(name)
-        .with_context(|| format!("there is no printer called {name}"))?;
+        .with_context(|| format!("there is no waiter called {name}"))?;
 
     let taster = Arc::new(Taster::with_whatever_is_set_up(&config)?);
     let plating = Arc::new(Plating::new(config::style()?, taster.clone(), config.models.plating.clone()));
     let catalog = Catalog::open(&config, plating, taster, Arc::new(HeldBack::default()));
 
     // Read from where she has got to, and the position left where it is
-    let arguments = match Position::of(name, printer) {
-        Some(position) => position.in_arguments(&printer.watch.arguments),
-        None => printer.watch.arguments.clone(),
+    let arguments = match Position::of(name, waiter) {
+        Some(position) => position.in_arguments(&waiter.watch.arguments),
+        None => waiter.watch.arguments.clone(),
     };
-    let answer = catalog.call(&printer.server, &printer.watch.tool, &arguments)?;
-    let messages = printer::messages_in(printer, &answer)?;
+    let answer = catalog.call(&waiter.server, &waiter.watch.tool, &arguments)?;
+    let messages = waiter::messages_in(waiter, &answer)?;
 
     println!("{} messages found in {} bytes of answer.", messages.len(), answer.len());
-    if printer.cursor.is_some() && messages.is_empty() {
-        println!("This printer is read from a position, so an empty answer is the usual one: it holds what arrived since it last looked.");
+    if waiter.cursor.is_some() && messages.is_empty() {
+        println!("This waiter is read from a position, so an empty answer is the usual one: it holds what arrived since it last looked.");
     }
     for message in &messages {
         let listened_to = match config.people.get(&message.sender) {
             Some(person) => format!("listens to: {person}"),
-            None if printer.anyone => "listens to: anyone here".to_string(),
+            None if waiter.anyone => "listens to: anyone here".to_string(),
             None => "ignored: not in people".to_string(),
         };
         println!();

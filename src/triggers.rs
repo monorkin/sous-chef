@@ -1,5 +1,5 @@
-//! A printer's trigger: a command that runs for as long as sous-chef does and
-//! prints a line whenever something happens there, so the printer is checked
+//! A waiter's trigger: a command that runs for as long as sous-chef does and
+//! prints a line whenever something happens there, so the waiter is checked
 //! then and not only on its timer.
 
 use anyhow::{Context, Result, bail};
@@ -16,18 +16,18 @@ use crate::logs;
 
 const SECONDS_BEFORE_RESTARTING_A_TRIGGER: u64 = 10;
 
-/// Runs a printer's trigger for as long as sous-chef runs, poking the printer
+/// Runs a waiter's trigger for as long as sous-chef runs, poking the waiter
 /// for every line it prints. What the line says doesn't matter: she reads what
-/// happened from the printer itself, so a trigger can't put words in anyone's
+/// happened from the waiter itself, so a trigger can't put words in anyone's
 /// mouth. A trigger that exits is started again after a pause — watchers lose
 /// their connection now and then, and one that can't start at all shouldn't
 /// spin.
-pub fn watch(printer: String, trigger: Trigger, poke: Sender<()>) {
+pub fn watch(waiter: String, trigger: Trigger, poke: Sender<()>) {
     os_thread::spawn(move || {
         loop {
-            logs::event("trigger.starting", json!({ "printer": printer, "command": trigger.command }));
+            logs::event("trigger.starting", json!({ "waiter": waiter, "command": trigger.command }));
             if let Err(error) = poke_for_every_line(&trigger, &poke) {
-                logs::event("trigger.failed", json!({ "printer": printer, "error": format!("{error:#}") }));
+                logs::event("trigger.failed", json!({ "waiter": waiter, "error": format!("{error:#}") }));
             }
             os_thread::sleep(Duration::from_secs(SECONDS_BEFORE_RESTARTING_A_TRIGGER));
         }

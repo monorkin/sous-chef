@@ -392,7 +392,7 @@ pub fn tell_of_commis_a_restart_stopped(runtime: &Arc<Runtime>) -> Result<()> {
                 let standing = if left.trusted { Standing::Trusted } else { Standing::CanAssignWork };
                 wake_in_turn(runtime, &runtime.turns, conversation, standing, stopped_by_a_restart(&left.commis, &left.project));
             }
-            None => logs::event("commis.orphaned", json!({ "commis": left.commis, "printer": left.origin.printer })),
+            None => logs::event("commis.orphaned", json!({ "commis": left.commis, "waiter": left.origin.waiter })),
         }
     }
     Ok(())

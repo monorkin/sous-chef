@@ -297,7 +297,7 @@ mod tests {
 
         fn origin(&self) -> crate::conversation::Origin {
             crate::conversation::Origin {
-                printer: "test".to_string(),
+                waiter: "test".to_string(),
                 conversation: "recorded".to_string(),
             }
         }

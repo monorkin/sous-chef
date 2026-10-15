@@ -269,8 +269,8 @@ mod tests {
         let directory = std::env::temp_dir().join(format!("sous-chef-schedule-tools-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&directory);
         let database = directory.join("sous-chef.db");
-        let origin = Origin { printer: "basecamp".to_string(), conversation: "card-1".to_string() };
-        let elsewhere = Origin { printer: "basecamp".to_string(), conversation: "card-2".to_string() };
+        let origin = Origin { waiter: "basecamp".to_string(), conversation: "card-1".to_string() };
+        let elsewhere = Origin { waiter: "basecamp".to_string(), conversation: "card-2".to_string() };
 
         let schedule = Schedule { database: database.clone(), origin: origin.clone(), standing: Standing::CanAssignWork };
         assert!(schedule.call(&json!({ "task": "Check the queue", "cron": "0 9 * * 1-5" })).unwrap().contains("number 1"));

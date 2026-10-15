@@ -2,10 +2,10 @@
 //! first time sous-chef starts. First from when sous-chef was still called
 //! anna: its folders, the Claude sessions filed under them, the token in the
 //! keyring and the service. Then from before the kitchen: the folders of
-//! threads, hands and sources become those of chefs de partie, commis and
-//! ticket printers.
+//! threads, hands and sources, and later printers, become those of chefs de
+//! partie, commis and waiters.
 //!
-//! And the Basecamp printers an older setup wrote are brought up to what this
+//! And the Basecamp waiters an older setup wrote are brought up to what this
 //! one would write.
 //!
 //! Each move happens only when the old folder is there and the new one
@@ -24,7 +24,8 @@ use crate::secrets;
 use crate::service;
 
 const OLD_NAME: &str = "anna";
-const OLD_FOLDERS: [(&str, &str); 3] = [("threads", paths::CHEFS_DE_PARTIE), ("hands", paths::COMMIS), ("sources", paths::PRINTERS)];
+const OLD_FOLDERS: [(&str, &str); 4] =
+    [("threads", paths::CHEFS_DE_PARTIE), ("hands", paths::COMMIS), ("sources", paths::WAITERS), ("printers", paths::WAITERS)];
 
 /// Stops here rather than going on without the old install: what would
 /// start then is an empty one, set up from nothing.
@@ -33,19 +34,19 @@ pub fn move_over_if_left_behind() {
         eprintln!("The install made under older names couldn't be moved over: {error:#}");
         std::process::exit(1);
     }
-    if let Err(error) = printers_up_to_date() {
-        eprintln!("The Basecamp printers couldn't be brought up to date: {error:#}");
+    if let Err(error) = waiters_up_to_date() {
+        eprintln!("The Basecamp waiters couldn't be brought up to date: {error:#}");
     }
 }
 
 /// What setup wrote into the config for Basecamp, as this release would
 /// write it, so an install needn't run setup again to hear sooner.
-fn printers_up_to_date() -> Result<()> {
+fn waiters_up_to_date() -> Result<()> {
     if !paths::config_dir().join("config.json").exists() {
         return Ok(());
     }
     let mut config = Config::load()?;
-    let changed = config.printers.values_mut().map(crate::setup_basecamp::up_to_date).filter(|it| *it).count();
+    let changed = config.waiters.values_mut().map(crate::setup_basecamp::up_to_date).filter(|it| *it).count();
     if changed > 0 {
         config.save()?;
     }
@@ -92,7 +93,7 @@ fn move_into_the_kitchen() -> Result<()> {
     let refiling: Vec<(&Path, &Path)> = moves.iter().map(|(old, new)| (old.as_path(), new.as_path())).collect();
     file_claude_sessions_anew(&refiling)?;
 
-    println!("Moved the threads, hands and sources over to chefs de partie, commis and ticket printers.");
+    println!("Moved the folders made under older names over to chefs de partie, commis and waiters.");
     Ok(())
 }
 

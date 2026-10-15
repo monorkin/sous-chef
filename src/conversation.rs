@@ -10,13 +10,13 @@ pub const TERMINAL: &str = "terminal";
 /// schedule comes due or another chef de partie has something to tell it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Origin {
-    pub printer: String,
+    pub waiter: String,
     pub conversation: String,
 }
 
 /// Whose word a turn runs on. Trusted people can change how the agent
 /// behaves and have it do things on the machine it runs on. Everyone else —
-/// where a printer lets them in at all — can hand it work and nothing more.
+/// where a waiter lets them in at all — can hand it work and nothing more.
 /// It is decided from the config when a message arrives, never by the chef de
 /// partie, and it changes what the chef de partie is able to do, not only what it is told.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -62,7 +62,7 @@ impl Conversation for Terminal {
 
     fn origin(&self) -> Origin {
         Origin {
-            printer: TERMINAL.to_string(),
+            waiter: TERMINAL.to_string(),
             conversation: self.name.clone(),
         }
     }

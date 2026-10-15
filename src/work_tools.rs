@@ -248,7 +248,7 @@ mod tests {
     use super::*;
 
     fn origin(conversation: &str) -> Origin {
-        Origin { printer: "basecamp".to_string(), conversation: conversation.to_string() }
+        Origin { waiter: "basecamp".to_string(), conversation: conversation.to_string() }
     }
 
     #[test]

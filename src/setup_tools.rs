@@ -78,7 +78,7 @@ impl Wizard<'_> {
         let trusted = self.trusted_people(tool, agent, recognized_by)?;
         if its_own {
             let anyone = self.anyone_may_assign_work(tool, agent)?;
-            self.doing.add_printer(tool.name, setup_basecamp::notifications_printer(anyone))?;
+            self.doing.add_waiter(tool.name, setup_basecamp::notifications_waiter(anyone))?;
             self.asking.done(&format!("{agent} listens in {} as {who}.", tool.title))?;
             self.say_who_is_heard(tool, agent, trusted, anyone)
         } else {
@@ -141,7 +141,7 @@ impl Wizard<'_> {
 
         let trusted = self.trusted_people(tool, agent, RecognizedBy::PersonId)?;
         let anyone = self.anyone_may_assign_work(tool, agent)?;
-        self.doing.add_printer(tool.name, setup_basecamp::agent_printer(anyone))?;
+        self.doing.add_waiter(tool.name, setup_basecamp::agent_waiter(anyone))?;
 
         self.asking.done(&format!("{agent} is in {} under its own profile.", tool.title))?;
         self.say_who_is_heard(tool, agent, trusted, anyone)
@@ -215,7 +215,7 @@ impl Wizard<'_> {
         self.asking.yes(&Question { title: "Work from anyone", question: &question, hint: &hint }, true)
     }
 
-    /// Someone is trusted as whatever the printer will report them as. Where
+    /// Someone is trusted as whatever the waiter will report them as. Where
     /// that is an id and not their address, the id is looked up now: a person
     /// the tool doesn't know would be trusted on paper and never recognized.
     fn trust(&mut self, tool: &Tool, agent: &str, address: &str, recognized_by: RecognizedBy) -> Result<usize> {

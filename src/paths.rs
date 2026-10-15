@@ -11,7 +11,7 @@ const NAME: &str = "sous-chef";
 pub const DATABASE: &str = "sous-chef.db";
 pub const CHEFS_DE_PARTIE: &str = "chefs_de_partie";
 pub const COMMIS: &str = "commis";
-pub const PRINTERS: &str = "printers";
+pub const WAITERS: &str = "waiters";
 
 /// The Claude Code config folder she works from: the login she is. Hers,
 /// under her config, and never the chef's or the shell's: `sous-chef claude
@@ -115,8 +115,8 @@ pub fn commis_dir() -> PathBuf {
     data_dir().join(COMMIS)
 }
 
-pub fn printer_dir(name: &str) -> PathBuf {
-    data_dir().join(PRINTERS).join(name)
+pub fn waiter_dir(name: &str) -> PathBuf {
+    data_dir().join(WAITERS).join(name)
 }
 
 /// The one socket whose name doesn't carry the process id: whoever holds it

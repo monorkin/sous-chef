@@ -6,7 +6,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::process::{Command, Stdio};
 
-use crate::config::{self, Config, Printer};
+use crate::config::{self, Config, Waiter};
 use crate::github;
 use crate::taster::Taster;
 use crate::mcp_cli;
@@ -191,9 +191,9 @@ impl Doing for Machine {
         mcp_cli::register(name, settings)
     }
 
-    fn add_printer(&mut self, name: &str, printer: Printer) -> Result<()> {
+    fn add_waiter(&mut self, name: &str, waiter: Waiter) -> Result<()> {
         let mut config = Config::load()?;
-        config.printers.insert(name.to_string(), printer);
+        config.waiters.insert(name.to_string(), waiter);
         config.save()
     }
 

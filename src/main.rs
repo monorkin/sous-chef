@@ -35,8 +35,8 @@ mod old_install;
 mod pass;
 mod paths;
 mod plating;
-mod printer;
-mod printer_cli;
+mod waiter;
+mod waiter_cli;
 mod prompt;
 mod proxy;
 mod runtime;
@@ -98,9 +98,9 @@ enum Command {
     Status,
     /// A dashboard in this terminal: the agent's accounts, memory and work, what's going on, and a line to tell a chef de partie something
     Dash,
-    /// Have sous-chef check a printer now instead of at the next tick; all of them when none is named
-    Poke { printer: Option<String> },
-    /// Run sous-chef in this terminal: listen on every printer until stopped
+    /// Have sous-chef check a waiter now instead of at the next tick; all of them when none is named
+    Poke { waiter: Option<String> },
+    /// Run sous-chef in this terminal: listen on every waiter until stopped
     Run,
     /// Write everything that makes this sous-chef what it is to a zip; safe while it runs
     Backup {
@@ -154,9 +154,9 @@ enum Command {
         command: SkillCommand,
     },
     /// Look at the places the agent listens
-    Printer {
+    Waiter {
         #[usage(subcommand)]
-        command: PrinterCommand,
+        command: WaiterCommand,
     },
     /// Inspect and manage what the agent remembers
     Memory {
@@ -176,8 +176,8 @@ enum Command {
 }
 
 #[derive(Subcommands)]
-enum PrinterCommand {
-    /// Read a printer once and show what the agent would make of it, without acting on anything
+enum WaiterCommand {
+    /// Read a waiter once and show what the agent would make of it, without acting on anything
     Check { name: String },
 }
 
@@ -308,7 +308,7 @@ fn run(cli: Cli) -> Result<()> {
         Command::Restart => lifecycle::restart(),
         Command::Status => lifecycle::status(),
         Command::Dash => dash::run(),
-        Command::Poke { printer } => lifecycle::poke(printer.as_deref()),
+        Command::Poke { waiter } => lifecycle::poke(waiter.as_deref()),
         Command::Run => expediter::run(),
         Command::Backup { to, without_secrets } => backup::backup(to, without_secrets),
         Command::Restore { path, force } => backup::restore(&path, force),
@@ -345,8 +345,8 @@ fn run(cli: Cli) -> Result<()> {
             SkillCommand::List => skills::list(),
             SkillCommand::Remove { name } => skills::remove(&name),
         },
-        Command::Printer { command } => match command {
-            PrinterCommand::Check { name } => printer_cli::check(&name),
+        Command::Waiter { command } => match command {
+            WaiterCommand::Check { name } => waiter_cli::check(&name),
         },
         Command::Memory { command } => katami::cli::run(katami::cli::Cli {
             command: katami::cli::Command::Memory { command },

@@ -17,7 +17,7 @@ use std::path::Path;
 
 use crate::conversation::Origin;
 
-const MIGRATIONS: [&str; 9] = ["
+const MIGRATIONS: [&str; 10] = ["
     CREATE TABLE schedules (
         id INTEGER PRIMARY KEY,
         source TEXT NOT NULL,
@@ -104,6 +104,14 @@ const MIGRATIONS: [&str; 9] = ["
     ALTER TABLE abouts RENAME COLUMN thread TO chef_de_partie;
     ALTER TABLE mail RENAME COLUMN from_thread TO from_chef_de_partie;
     ALTER TABLE mail RENAME COLUMN to_source TO to_printer;
+", "
+    ALTER TABLE commis RENAME COLUMN printer TO waiter;
+    ALTER TABLE schedules RENAME COLUMN printer TO waiter;
+    ALTER TABLE work RENAME COLUMN printer TO waiter;
+    ALTER TABLE turns RENAME COLUMN printer TO waiter;
+    ALTER TABLE opened RENAME COLUMN printer TO waiter;
+    ALTER TABLE abouts RENAME COLUMN printer TO waiter;
+    ALTER TABLE mail RENAME COLUMN to_printer TO to_waiter;
 "];
 
 /// A turn that was asked for and not yet finished: what a stopped sous-chef
@@ -245,14 +253,14 @@ impl Store {
 
     pub fn add_schedule(&self, origin: &Origin, cron: Option<&str>, task: &str, next_run: i64, trusted: bool, created: &str) -> Result<i64> {
         self.connection.execute(
-            "INSERT INTO schedules (printer, conversation, cron, task, next_run, trusted, created) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![origin.printer, origin.conversation, cron, task, next_run, trusted, created],
+            "INSERT INTO schedules (waiter, conversation, cron, task, next_run, trusted, created) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![origin.waiter, origin.conversation, cron, task, next_run, trusted, created],
         )?;
         Ok(self.connection.last_insert_rowid())
     }
 
     pub fn schedules_of(&self, origin: &Origin) -> Result<Vec<Schedule>> {
-        self.schedules_where("printer = ?1 AND conversation = ?2", params![origin.printer, origin.conversation])
+        self.schedules_where("waiter = ?1 AND conversation = ?2", params![origin.waiter, origin.conversation])
     }
 
     pub fn schedules_due(&self, now: i64) -> Result<Vec<Schedule>> {
@@ -273,21 +281,21 @@ impl Store {
     /// A chef de partie can only cancel what it set up itself.
     pub fn cancel_schedule(&self, id: i64, origin: &Origin) -> Result<bool> {
         let removed = self.connection.execute(
-            "DELETE FROM schedules WHERE id = ?1 AND printer = ?2 AND conversation = ?3",
-            params![id, origin.printer, origin.conversation],
+            "DELETE FROM schedules WHERE id = ?1 AND waiter = ?2 AND conversation = ?3",
+            params![id, origin.waiter, origin.conversation],
         )?;
         Ok(removed > 0)
     }
 
     fn schedules_where(&self, condition: &str, values: &[&dyn rusqlite::ToSql]) -> Result<Vec<Schedule>> {
         let mut statement = self.connection.prepare(&format!(
-            "SELECT id, printer, conversation, cron, task, next_run, trusted FROM schedules WHERE {condition} ORDER BY next_run, id"
+            "SELECT id, waiter, conversation, cron, task, next_run, trusted FROM schedules WHERE {condition} ORDER BY next_run, id"
         ))?;
         let schedules = statement
             .query_map(values, |row| {
                 Ok(Schedule {
                     id: row.get(0)?,
-                    origin: Origin { printer: row.get(1)?, conversation: row.get(2)? },
+                    origin: Origin { waiter: row.get(1)?, conversation: row.get(2)? },
                     cron: row.get(3)?,
                     task: row.get(4)?,
                     next_run: row.get(5)?,
@@ -302,8 +310,8 @@ impl Store {
     /// was still to do survives a stop, a crash, or a limit that was hit.
     pub fn keep_turn(&self, origin: &Origin, trusted: bool, said: &str, now: &str) -> Result<i64> {
         self.connection.execute(
-            "INSERT INTO turns (printer, conversation, trusted, said, queued) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![origin.printer, origin.conversation, trusted, said, now],
+            "INSERT INTO turns (waiter, conversation, trusted, said, queued) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![origin.waiter, origin.conversation, trusted, said, now],
         )?;
         Ok(self.connection.last_insert_rowid())
     }
@@ -315,12 +323,12 @@ impl Store {
 
     /// In the order they were asked for, which is the order they run in.
     pub fn turns_left(&self) -> Result<Vec<PendingTurn>> {
-        let mut statement = self.connection.prepare("SELECT id, printer, conversation, trusted, said FROM turns ORDER BY id")?;
+        let mut statement = self.connection.prepare("SELECT id, waiter, conversation, trusted, said FROM turns ORDER BY id")?;
         let turns = statement
             .query_map([], |row| {
                 Ok(PendingTurn {
                     id: row.get(0)?,
-                    origin: Origin { printer: row.get(1)?, conversation: row.get(2)? },
+                    origin: Origin { waiter: row.get(1)?, conversation: row.get(2)? },
                     trusted: row.get(3)?,
                     said: row.get(4)?,
                 })
@@ -331,8 +339,8 @@ impl Store {
 
     pub fn commis_at_work(&self, commis: &str, origin: &Origin, trusted: bool, project: &str, now: &str) -> Result<()> {
         self.connection.execute(
-            "INSERT OR REPLACE INTO commis (commis, printer, conversation, trusted, project, started) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![commis, origin.printer, origin.conversation, trusted, project, now],
+            "INSERT OR REPLACE INTO commis (commis, waiter, conversation, trusted, project, started) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![commis, origin.waiter, origin.conversation, trusted, project, now],
         )?;
         Ok(())
     }
@@ -343,12 +351,12 @@ impl Store {
     }
 
     pub fn commis_left(&self) -> Result<Vec<CommisLeft>> {
-        let mut statement = self.connection.prepare("SELECT commis, printer, conversation, trusted, project FROM commis ORDER BY started")?;
+        let mut statement = self.connection.prepare("SELECT commis, waiter, conversation, trusted, project FROM commis ORDER BY started")?;
         let commis = statement
             .query_map([], |row| {
                 Ok(CommisLeft {
                     commis: row.get(0)?,
-                    origin: Origin { printer: row.get(1)?, conversation: row.get(2)? },
+                    origin: Origin { waiter: row.get(1)?, conversation: row.get(2)? },
                     trusted: row.get(3)?,
                     project: row.get(4)?,
                 })
@@ -363,8 +371,8 @@ impl Store {
     /// being able to hand her work.
     pub fn open_conversation(&self, origin: &Origin, now: &str) -> Result<()> {
         self.connection.execute(
-            "INSERT OR IGNORE INTO opened (printer, conversation, opened) VALUES (?1, ?2, ?3)",
-            params![origin.printer, origin.conversation, now],
+            "INSERT OR IGNORE INTO opened (waiter, conversation, opened) VALUES (?1, ?2, ?3)",
+            params![origin.waiter, origin.conversation, now],
         )?;
         Ok(())
     }
@@ -373,8 +381,8 @@ impl Store {
         let opened = self
             .connection
             .query_row(
-                "SELECT 1 FROM opened WHERE printer = ?1 AND conversation = ?2",
-                params![origin.printer, origin.conversation],
+                "SELECT 1 FROM opened WHERE waiter = ?1 AND conversation = ?2",
+                params![origin.waiter, origin.conversation],
                 |_| Ok(()),
             )
             .optional()?;
@@ -384,18 +392,18 @@ impl Store {
     /// One line per conversation: claiming again replaces what was claimed.
     pub fn claim_work(&self, origin: &Origin, chef_de_partie: &str, title: &str, project: Option<&str>, about: Option<&str>, now: &str) -> Result<()> {
         self.connection.execute(
-            "INSERT INTO work (printer, conversation, chef_de_partie, title, project, about, status, updated)
+            "INSERT INTO work (waiter, conversation, chef_de_partie, title, project, about, status, updated)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'open', ?7)
-             ON CONFLICT (printer, conversation) DO UPDATE SET
+             ON CONFLICT (waiter, conversation) DO UPDATE SET
                  chef_de_partie = excluded.chef_de_partie, title = excluded.title, project = excluded.project,
                  about = coalesce(excluded.about, work.about), status = 'open', updated = excluded.updated",
-            params![origin.printer, origin.conversation, chef_de_partie, title, project, about, now],
+            params![origin.waiter, origin.conversation, chef_de_partie, title, project, about, now],
         )?;
         if let Some(about) = about {
             self.connection.execute(
-                "INSERT INTO abouts (about, printer, conversation, chef_de_partie, claimed) VALUES (?1, ?2, ?3, ?4, ?5)
-                 ON CONFLICT (about, printer, conversation) DO UPDATE SET chef_de_partie = excluded.chef_de_partie, claimed = excluded.claimed",
-                params![about, origin.printer, origin.conversation, chef_de_partie, now],
+                "INSERT INTO abouts (about, waiter, conversation, chef_de_partie, claimed) VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT (about, waiter, conversation) DO UPDATE SET chef_de_partie = excluded.chef_de_partie, claimed = excluded.claimed",
+                params![about, origin.waiter, origin.conversation, chef_de_partie, now],
             )?;
         }
         Ok(())
@@ -411,21 +419,21 @@ impl Store {
         Ok(self
             .connection
             .query_row(
-                "SELECT abouts.chef_de_partie, abouts.printer, abouts.conversation FROM abouts
-                 LEFT JOIN work ON work.printer = abouts.printer AND work.conversation = abouts.conversation
+                "SELECT abouts.chef_de_partie, abouts.waiter, abouts.conversation FROM abouts
+                 LEFT JOIN work ON work.waiter = abouts.waiter AND work.conversation = abouts.conversation
                  WHERE abouts.about = ?1
                  ORDER BY coalesce(work.status = 'open' AND work.about = abouts.about, 0) DESC, abouts.claimed DESC
                  LIMIT 1",
                 params![about],
-                |row| Ok((row.get(0)?, Origin { printer: row.get(1)?, conversation: row.get(2)? })),
+                |row| Ok((row.get(0)?, Origin { waiter: row.get(1)?, conversation: row.get(2)? })),
             )
             .optional()?)
     }
 
     pub fn finish_work(&self, origin: &Origin, now: &str) -> Result<bool> {
         let finished = self.connection.execute(
-            "UPDATE work SET status = 'done', updated = ?3 WHERE printer = ?1 AND conversation = ?2 AND status = 'open'",
-            params![origin.printer, origin.conversation, now],
+            "UPDATE work SET status = 'done', updated = ?3 WHERE waiter = ?1 AND conversation = ?2 AND status = 'open'",
+            params![origin.waiter, origin.conversation, now],
         )?;
         Ok(finished > 0)
     }
@@ -434,13 +442,13 @@ impl Store {
     /// asking from outside a chef de partie.
     pub fn open_work(&self) -> Result<Vec<Work>> {
         let mut statement = self.connection.prepare(
-            "SELECT printer, conversation, chef_de_partie, title, project, about, updated FROM work
+            "SELECT waiter, conversation, chef_de_partie, title, project, about, updated FROM work
              WHERE status = 'open' ORDER BY updated DESC",
         )?;
         let work = statement
             .query_map([], |row| {
                 Ok(Work {
-                    origin: Origin { printer: row.get(0)?, conversation: row.get(1)? },
+                    origin: Origin { waiter: row.get(0)?, conversation: row.get(1)? },
                     chef_de_partie: row.get(2)?,
                     title: row.get(3)?,
                     project: row.get(4)?,
@@ -454,13 +462,13 @@ impl Store {
 
     pub fn open_work_of_others(&self, origin: &Origin) -> Result<Vec<Work>> {
         let mut statement = self.connection.prepare(
-            "SELECT printer, conversation, chef_de_partie, title, project, about, updated FROM work
-             WHERE status = 'open' AND NOT (printer = ?1 AND conversation = ?2) ORDER BY updated DESC",
+            "SELECT waiter, conversation, chef_de_partie, title, project, about, updated FROM work
+             WHERE status = 'open' AND NOT (waiter = ?1 AND conversation = ?2) ORDER BY updated DESC",
         )?;
         let work = statement
-            .query_map(params![origin.printer, origin.conversation], |row| {
+            .query_map(params![origin.waiter, origin.conversation], |row| {
                 Ok(Work {
-                    origin: Origin { printer: row.get(0)?, conversation: row.get(1)? },
+                    origin: Origin { waiter: row.get(0)?, conversation: row.get(1)? },
                     chef_de_partie: row.get(2)?,
                     title: row.get(3)?,
                     project: row.get(4)?,
@@ -476,8 +484,8 @@ impl Store {
     pub fn origin_of_chef_de_partie(&self, chef_de_partie: &str) -> Result<Option<Origin>> {
         let origin = self
             .connection
-            .query_row("SELECT printer, conversation FROM work WHERE chef_de_partie = ?1", params![chef_de_partie], |row| {
-                Ok(Origin { printer: row.get(0)?, conversation: row.get(1)? })
+            .query_row("SELECT waiter, conversation FROM work WHERE chef_de_partie = ?1", params![chef_de_partie], |row| {
+                Ok(Origin { waiter: row.get(0)?, conversation: row.get(1)? })
             })
             .optional()?;
         Ok(origin)
@@ -488,17 +496,17 @@ impl Store {
     pub fn chefs_de_partie_named(&self, part: &str) -> Result<Vec<(String, Origin)>> {
         let mut statement = self
             .connection
-            .prepare("SELECT chef_de_partie, printer, conversation FROM work WHERE instr(chef_de_partie, ?1) > 0 ORDER BY chef_de_partie")?;
+            .prepare("SELECT chef_de_partie, waiter, conversation FROM work WHERE instr(chef_de_partie, ?1) > 0 ORDER BY chef_de_partie")?;
         let chefs_de_partie = statement
-            .query_map(params![part], |row| Ok((row.get(0)?, Origin { printer: row.get(1)?, conversation: row.get(2)? })))?
+            .query_map(params![part], |row| Ok((row.get(0)?, Origin { waiter: row.get(1)?, conversation: row.get(2)? })))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(chefs_de_partie)
     }
 
     pub fn send_mail(&self, from_chef_de_partie: &str, to: &Origin, body: &str, trusted: bool, now: i64) -> Result<()> {
         self.connection.execute(
-            "INSERT INTO mail (from_chef_de_partie, to_printer, to_conversation, body, trusted, sent) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![from_chef_de_partie, to.printer, to.conversation, body, trusted, now],
+            "INSERT INTO mail (from_chef_de_partie, to_waiter, to_conversation, body, trusted, sent) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![from_chef_de_partie, to.waiter, to.conversation, body, trusted, now],
         )?;
         Ok(())
     }
@@ -513,14 +521,14 @@ impl Store {
 
     pub fn undelivered_mail(&self) -> Result<Vec<Mail>> {
         let mut statement = self.connection.prepare(
-            "SELECT id, from_chef_de_partie, to_printer, to_conversation, body, trusted FROM mail WHERE delivered IS NULL ORDER BY id",
+            "SELECT id, from_chef_de_partie, to_waiter, to_conversation, body, trusted FROM mail WHERE delivered IS NULL ORDER BY id",
         )?;
         let mail = statement
             .query_map([], |row| {
                 Ok(Mail {
                     id: row.get(0)?,
                     from_chef_de_partie: row.get(1)?,
-                    to: Origin { printer: row.get(2)?, conversation: row.get(3)? },
+                    to: Origin { waiter: row.get(2)?, conversation: row.get(3)? },
                     body: row.get(4)?,
                     trusted: row.get(5)?,
                 })
@@ -547,7 +555,7 @@ mod tests {
     }
 
     fn origin(conversation: &str) -> Origin {
-        Origin { printer: "basecamp".to_string(), conversation: conversation.to_string() }
+        Origin { waiter: "basecamp".to_string(), conversation: conversation.to_string() }
     }
 
     #[test]
@@ -661,7 +669,7 @@ mod tests {
         store.open_conversation(&origin("card-1"), "t2").unwrap();
         assert!(store.opened(&origin("card-1")).unwrap());
         assert!(!store.opened(&origin("card-2")).unwrap());
-        assert!(!store.opened(&Origin { printer: "terminal".to_string(), conversation: "card-1".to_string() }).unwrap(), "opened on one printer, not every printer");
+        assert!(!store.opened(&Origin { waiter: "terminal".to_string(), conversation: "card-1".to_string() }).unwrap(), "opened on one waiter, not every waiter");
         std::fs::remove_dir_all(directory).unwrap();
     }
 

@@ -3,7 +3,7 @@
 
 use serde_json::json;
 
-use crate::config::{Call, Cursor, Latest, Pointers, Printer};
+use crate::config::{Call, Cursor, Latest, Pointers, Waiter};
 use crate::setup::words;
 
 /// Basecamp pushes nothing an agent or a user's command line can listen
@@ -15,30 +15,30 @@ const NOTIFICATIONS_NOTE: &str = "That is the notification, not the comment: its
 
 const INBOX_NOTE: &str ="That is an item from your Basecamp inbox, not what they wrote. Its lines are, in order: why it reached you, the kind of event, the project (bucket) id, the recording id, and the event's details when it has any. Read the recording with your Basecamp tools before you do anything, and answer where you were addressed: a comment on that recording, or on what it belongs to when the recording is itself a comment, and a line in the Campfire when it was said in a Campfire. Write what you post as Basecamp's editor does: plain text with <br><br> between paragraphs, <strong>, <code> and <a> where they help, <pre> for a block of code or a command with its lines as they are, and <ul><li> for a list. Not <p>: Basecamp shows adjacent paragraphs with no space between them.";
 
-/// A Basecamp printer an older setup wrote, as this one would write it: asked
+/// A Basecamp waiter an older setup wrote, as this one would write it: asked
 /// every EVERY_SECONDS, without the `watch` the command line never got, and
 /// with today's note. Says whether anything changed. Anything that isn't one
-/// of setup's Basecamp printers is left as it is.
-pub fn up_to_date(printer: &mut Printer) -> bool {
-    let (note, first) = match printer.watch.tool.as_str() {
+/// of setup's Basecamp waiters is left as it is.
+pub fn up_to_date(waiter: &mut Waiter) -> bool {
+    let (note, first) = match waiter.watch.tool.as_str() {
         "basecamp_eventfeed" => (INBOX_NOTE, "That is an item from your Basecamp inbox"),
         "basecamp_account" => (NOTIFICATIONS_NOTE, "That is the notification, not the comment"),
         _ => return false,
     };
-    if printer.server != "basecamp" {
+    if waiter.server != "basecamp" {
         return false;
     }
-    let before = printer.clone();
-    if [60, 900].contains(&printer.every_seconds) {
-        printer.every_seconds = EVERY_SECONDS;
+    let before = waiter.clone();
+    if [60, 900].contains(&waiter.every_seconds) {
+        waiter.every_seconds = EVERY_SECONDS;
     }
-    if printer.trigger.as_ref().is_some_and(|it| it.args.iter().any(|arg| arg == "watch")) {
-        printer.trigger = None;
+    if waiter.trigger.as_ref().is_some_and(|it| it.args.iter().any(|arg| arg == "watch")) {
+        waiter.trigger = None;
     }
-    if printer.note.as_deref().is_some_and(|it| it.starts_with(first)) {
-        printer.note = Some(note.to_string());
+    if waiter.note.as_deref().is_some_and(|it| it.starts_with(first)) {
+        waiter.note = Some(note.to_string());
     }
-    *printer != before
+    *waiter != before
 }
 
 /// How an agent hears things in Basecamp. It has no notifications — Basecamp
@@ -53,8 +53,8 @@ pub fn up_to_date(printer: &mut Printer) -> bool {
 /// Basecamp's own tools. `anyone` lets people who aren't trusted hand it
 /// work; Basecamp already decides who can reach an agent at all — the people
 /// in the projects it was added to.
-pub fn agent_printer(anyone: bool) -> Printer {
-    Printer {
+pub fn agent_waiter(anyone: bool) -> Waiter {
+    Waiter {
         server: "basecamp".to_string(),
         watch: Call { tool: "basecamp_eventfeed".to_string(), arguments: json!({ "action": "poll_inbox", "params": {} }) },
         every_seconds: EVERY_SECONDS,
@@ -86,8 +86,8 @@ pub fn agent_printer(anyone: bool) -> Printer {
 /// and there is no single call that answers, so the chef de partie answers
 /// with Basecamp's own tools. The profile lives in the chef's own command
 /// line config, where they logged it in, so nothing is pointed elsewhere.
-pub fn notifications_printer(anyone: bool) -> Printer {
-    Printer {
+pub fn notifications_waiter(anyone: bool) -> Waiter {
+    Waiter {
         server: "basecamp".to_string(),
         watch: Call { tool: "basecamp_account".to_string(), arguments: json!({ "action": "get_my_notifications" }) },
         every_seconds: EVERY_SECONDS,
@@ -123,22 +123,22 @@ mod tests {
     use crate::config::Trigger;
 
     #[test]
-    fn a_basecamp_printer_an_older_setup_wrote_is_brought_up_to_date() {
-        let mut agent = agent_printer(false);
+    fn a_basecamp_waiter_an_older_setup_wrote_is_brought_up_to_date() {
+        let mut agent = agent_waiter(false);
         agent.every_seconds = 60;
         agent.note = Some("That is an item from your Basecamp inbox, not what they wrote. … answer with a new message on that project's message board".to_string());
         agent.trigger = Some(Trigger { command: "basecamp".to_string(), args: words(&["--profile", "botten", "watch", "--json"]), env: Default::default() });
 
         assert!(up_to_date(&mut agent));
-        assert_eq!(agent, agent_printer(false), "as setup writes it today");
+        assert_eq!(agent, agent_waiter(false), "as setup writes it today");
         assert!(!up_to_date(&mut agent), "and only once");
 
-        let mut chosen = notifications_printer(true);
+        let mut chosen = notifications_waiter(true);
         chosen.every_seconds = 30;
         chosen.note = Some("Something the chef wrote themselves".to_string());
         assert!(!up_to_date(&mut chosen), "an interval and a note someone picked are theirs");
 
-        let mut elsewhere = agent_printer(false);
+        let mut elsewhere = agent_waiter(false);
         elsewhere.server = "hey".to_string();
         elsewhere.every_seconds = 60;
         assert!(!up_to_date(&mut elsewhere));

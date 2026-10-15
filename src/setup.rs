@@ -21,7 +21,7 @@ use anyhow::Result;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use crate::config::{self, Config, Printer};
+use crate::config::{self, Config, Waiter};
 use crate::fsutil;
 use crate::paths;
 use crate::prompt::{self, Asking, Question, Terminal};
@@ -100,7 +100,7 @@ pub trait Doing {
     /// connected under `profile`.
     fn connect_agent(&mut self, tool: &str, profile: &str, agent: &str) -> Result<()>;
     fn add_server(&mut self, name: &str, command: &[String], env: BTreeMap<String, String>, acts_as: ActsAs) -> Result<()>;
-    fn add_printer(&mut self, name: &str, printer: Printer) -> Result<()>;
+    fn add_waiter(&mut self, name: &str, waiter: Waiter) -> Result<()>;
     fn trust(&mut self, address: &str, name: &str) -> Result<()>;
 }
 
@@ -112,7 +112,7 @@ pub enum ActsAs {
     Chef,
 }
 
-/// What a printer reports its senders as, which is what `people` has to be
+/// What a waiter reports its senders as, which is what `people` has to be
 /// keyed by.
 #[derive(Clone, Copy)]
 pub enum RecognizedBy {
@@ -444,7 +444,7 @@ mod tests {
         server_env: Vec<BTreeMap<String, String>>,
         acts_as: Vec<ActsAs>,
         trusted: Vec<(String, String)>,
-        printers: Vec<(String, Printer)>,
+        waiters: Vec<(String, Waiter)>,
         profiles: Vec<&'static str>,
         github_login: Option<String>,
         git_identity: Option<(String, String)>,
@@ -555,8 +555,8 @@ mod tests {
             Ok(())
         }
 
-        fn add_printer(&mut self, name: &str, printer: Printer) -> Result<()> {
-            self.printers.push((name.to_string(), printer));
+        fn add_waiter(&mut self, name: &str, waiter: Waiter) -> Result<()> {
+            self.waiters.push((name.to_string(), waiter));
             Ok(())
         }
 
@@ -604,26 +604,26 @@ mod tests {
         assert_eq!(doing.server_env[0]["XDG_CONFIG_HOME"], "{tools}", "her Basecamp profile lives in her own folder, wherever that is");
         assert!(config::environment(&doing.server_env[0])["XDG_CONFIG_HOME"].ends_with("/sous-chef/tools"));
         assert!(doing.server_env[1].is_empty(), "a tool used as you runs with your own config");
-        let (name, printer) = &doing.printers[0];
+        let (name, waiter) = &doing.waiters[0];
         assert_eq!(name, "basecamp");
         assert_eq!(
             doing.trusted,
             [("1001".to_string(), "Me".to_string()), ("1002".to_string(), "Marta K".to_string()), ("2002".to_string(), "Marta K".to_string())],
             "an agent's inbox reports people by id, so that is what they are trusted as — in every account they are in"
         );
-        assert_eq!(printer.watch.arguments, json!({ "action": "poll_inbox", "params": {} }), "an agent has an inbox, not notifications");
-        assert_eq!(printer.sender, "/event/creator_id");
-        assert_eq!(printer.cursor, Some(Cursor { from: "/position".to_string(), into: "/params/position".to_string() }));
-        assert!(printer.note.as_ref().unwrap().contains("Read the recording"));
-        assert!(!printer.anyone, "nobody but the trusted people is heard");
+        assert_eq!(waiter.watch.arguments, json!({ "action": "poll_inbox", "params": {} }), "an agent has an inbox, not notifications");
+        assert_eq!(waiter.sender, "/event/creator_id");
+        assert_eq!(waiter.cursor, Some(Cursor { from: "/position".to_string(), into: "/params/position".to_string() }));
+        assert!(waiter.note.as_ref().unwrap().contains("Read the recording"));
+        assert!(!waiter.anyone, "nobody but the trusted people is heard");
         assert!(asking.said.iter().any(|it| it.contains("acts only on the people you named")));
-        assert_eq!(printer.reply, None);
-        assert_eq!((printer.trigger.as_ref(), printer.every_seconds), (None, 15), "Basecamp pushes nothing to listen to, so its inbox is asked often");
-        let note = printer.note.as_ref().unwrap();
+        assert_eq!(waiter.reply, None);
+        assert_eq!((waiter.trigger.as_ref(), waiter.every_seconds), (None, 15), "Basecamp pushes nothing to listen to, so its inbox is asked often");
+        let note = waiter.note.as_ref().unwrap();
         assert!(note.contains("answer where you were addressed") && !note.contains("message board"), "an agent comments and chats like anyone: {note}");
 
         assert_eq!(doing.servers[1], ("hey".to_string(), words(&["hey", "mcp"])));
-        assert_eq!(doing.printers.len(), 1, "a tool used as you gets no printer");
+        assert_eq!(doing.waiters.len(), 1, "a tool used as you gets no waiter");
         assert!(asking.asked.iter().any(|it| it == "Confirm: Do you want to allow Botten to use HEY as me@hey.example.com?"));
         assert!(!asking.asked.iter().any(|it| it.contains("Fizzy")), "fizzy isn't installed, so it isn't offered");
 
@@ -665,7 +665,7 @@ mod tests {
         assert_eq!(doing.service, None);
         assert!(doing.kept.is_empty());
         assert!(doing.servers.is_empty());
-        assert!(doing.printers.is_empty());
+        assert!(doing.waiters.is_empty());
         assert!(asking.asked.iter().any(|it| it.starts_with("Fizzy:")));
     }
 
@@ -676,7 +676,7 @@ mod tests {
         let config_dir = walk(&mut asking, &mut doing, "as-you");
 
         assert_eq!(doing.servers, [("basecamp".to_string(), words(&["basecamp", "mcp", "--account", "111"]))]);
-        assert!(doing.printers.is_empty());
+        assert!(doing.waiters.is_empty());
         assert!(doing.connected.is_empty());
         assert!(!asking.asked.iter().any(|it| it.starts_with("Profile:") || it.starts_with("Listen:")), "one profile, and it is the chef's: nothing to pick, nothing to listen as");
         assert_eq!(doing.trusted, [("me@basecamp.example.com".to_string(), "Me".to_string())], "enter trusts whoever runs setup");
@@ -694,11 +694,11 @@ mod tests {
         assert_eq!(doing.servers, [("basecamp".to_string(), words(&["basecamp", "--profile", "bot", "mcp", "--account", "111"]))]);
         assert!(doing.server_env[0].is_empty(), "the profile is in the chef's own command line config, where they logged it in");
         assert_eq!(doing.acts_as, [ActsAs::Agent], "her own user acts as her");
-        let (_, printer) = &doing.printers[0];
-        assert_eq!(printer.watch.tool, "basecamp_account", "a user hears through notifications, the way a person does");
-        assert_eq!(printer.sender, "/creator/id", "a user that isn't an admin sees addresses redacted");
-        assert_eq!((printer.trigger.as_ref(), printer.every_seconds), (None, 15), "notifications are asked as often as an agent's inbox");
-        assert!(!printer.anyone);
+        let (_, waiter) = &doing.waiters[0];
+        assert_eq!(waiter.watch.tool, "basecamp_account", "a user hears through notifications, the way a person does");
+        assert_eq!(waiter.sender, "/creator/id", "a user that isn't an admin sees addresses redacted");
+        assert_eq!((waiter.trigger.as_ref(), waiter.every_seconds), (None, 15), "notifications are asked as often as an agent's inbox");
+        assert!(!waiter.anyone);
         assert_eq!(doing.trusted, [("1001".to_string(), "Me".to_string())], "so the trusted person is known by id");
         let _ = std::fs::remove_dir_all(config_dir);
 
@@ -708,7 +708,7 @@ mod tests {
         let config_dir = walk(&mut asking, &mut doing, "own-profile");
         assert_eq!(doing.servers[0].1, words(&["basecamp", "--profile", "personal", "mcp", "--account", "111"]));
         assert_eq!(doing.acts_as, [ActsAs::Chef], "the chef's own profile is only for turns on a trusted word");
-        assert!(doing.printers.is_empty());
+        assert!(doing.waiters.is_empty());
         assert!(!asking.asked.iter().any(|it| it.starts_with("Listen:")));
         let _ = std::fs::remove_dir_all(config_dir);
     }
@@ -720,7 +720,7 @@ mod tests {
         let config_dir = walk(&mut asking, &mut doing, "anyone");
 
         assert_eq!(doing.trusted.len(), 1);
-        assert!(doing.printers[0].1.anyone, "enter says yes: anyone may assign work");
+        assert!(doing.waiters[0].1.anyone, "enter says yes: anyone may assign work");
         assert!(asking.asked.iter().any(|it| it == "Work from anyone: Should anyone in Basecamp be able to assign Anna work?"));
         assert!(asking.said.iter().any(|it| it.contains("only the people you named can direct it")));
         let _ = std::fs::remove_dir_all(config_dir);
@@ -733,7 +733,7 @@ mod tests {
         let config_dir = walk(&mut asking, &mut doing, "nobody");
 
         assert!(doing.trusted.is_empty());
-        assert!(!doing.printers[0].1.anyone);
+        assert!(!doing.waiters[0].1.anyone);
         assert!(asking.said.iter().any(|it| it.starts_with("TROUBLE Nobody is trusted and nobody else may assign work")));
         let _ = std::fs::remove_dir_all(config_dir);
     }
@@ -765,7 +765,7 @@ mod tests {
 
         assert_eq!(asking.said.iter().filter(|it| it.starts_with("TROUBLE The installed basecamp can't connect agents")).count(), 2);
         assert_eq!(doing.connected, ["basecamp anna Anna"], "checking again after the update carries on from where it was");
-        assert_eq!(doing.printers.len(), 1);
+        assert_eq!(doing.waiters.len(), 1);
         let _ = std::fs::remove_dir_all(config_dir);
     }
 
@@ -777,7 +777,7 @@ mod tests {
 
         assert_eq!(doing.servers, [("basecamp".to_string(), words(&["basecamp", "mcp", "--account", "111"]))]);
         assert!(doing.connected.is_empty());
-        assert!(doing.printers.is_empty());
+        assert!(doing.waiters.is_empty());
         let _ = std::fs::remove_dir_all(config_dir);
 
         let mut asking = Scripted::answering(&["", "", "", "", "", "y", "y", "3"]);

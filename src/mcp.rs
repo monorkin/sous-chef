@@ -84,7 +84,7 @@ impl Catalog {
         Catalog { tools, servers }
     }
 
-    /// A call she makes herself — polling a printer, answering in a
+    /// A call she makes herself — polling a waiter, answering in a
     /// conversation — rather than one a session asked for. Nothing is
     /// restyled or screened here; the caller does what its text needs.
     pub fn call(&self, server: &str, tool: &str, arguments: &Value) -> Result<String> {

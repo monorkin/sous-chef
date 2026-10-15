@@ -3,9 +3,9 @@
 //! One request per connection, one line of JSON each way. `stop` and `status`
 //! are what they say. `poke` is the answer to polling: MCP servers can't say
 //! that something arrived, so anything that can — a webhook receiver, a mail
-//! filter, cron, a person — runs `sous-chef poke` and she checks her printers now
+//! filter, cron, a person — runs `sous-chef poke` and she checks her waiters now
 //! instead of at the next tick. A poke carries no message and no sender; she
-//! still reads what happened from the printer itself, so being able to poke
+//! still reads what happened from the waiter itself, so being able to poke
 //! her is not being able to speak as someone.
 //!
 //! The socket lives in the runtime directory, which only its owner can enter.
@@ -28,7 +28,7 @@ const SECONDS_TO_ANSWER: u64 = 10;
 
 pub trait Controls: Send + Sync {
     fn status(&self) -> Value;
-    fn poke(&self, printer: Option<&str>) -> Result<String>;
+    fn poke(&self, waiter: Option<&str>) -> Result<String>;
     fn tell(&self, chef_de_partie: &str, message: &str) -> Result<String>;
     fn stop(&self);
 }
@@ -89,7 +89,7 @@ fn answer(connection: UnixStream, controls: &dyn Controls) -> Result<()> {
     let mut connection = connection;
     match request["command"].as_str() {
         Some("status") => writeln!(connection, "{}", json!({ "ok": true, "status": controls.status() }))?,
-        Some("poke") => match controls.poke(request["printer"].as_str()) {
+        Some("poke") => match controls.poke(request["waiter"].as_str()) {
             Ok(message) => writeln!(connection, "{}", json!({ "ok": true, "message": message }))?,
             Err(error) => writeln!(connection, "{}", json!({ "ok": false, "message": format!("{error:#}") }))?,
         },
@@ -144,14 +144,14 @@ mod tests {
 
     impl Controls for Recorded {
         fn status(&self) -> Value {
-            json!({ "printers": ["fake"] })
+            json!({ "waiters": ["fake"] })
         }
 
-        fn poke(&self, printer: Option<&str>) -> Result<String> {
-            if printer == Some("nowhere") {
-                bail!("there is no printer called nowhere");
+        fn poke(&self, waiter: Option<&str>) -> Result<String> {
+            if waiter == Some("nowhere") {
+                bail!("there is no waiter called nowhere");
             }
-            self.poked.lock().unwrap().push(printer.map(String::from));
+            self.poked.lock().unwrap().push(waiter.map(String::from));
             Ok("Checking.".to_string())
         }
 
@@ -180,15 +180,15 @@ mod tests {
     fn requests_are_answered_with_one_line_each() {
         let controls = Recorded::default();
 
-        assert_eq!(exchange(&controls, json!({ "command": "status" }))["status"]["printers"][0], "fake");
+        assert_eq!(exchange(&controls, json!({ "command": "status" }))["status"]["waiters"][0], "fake");
 
-        assert_eq!(exchange(&controls, json!({ "command": "poke", "printer": "fake" }))["ok"], true);
+        assert_eq!(exchange(&controls, json!({ "command": "poke", "waiter": "fake" }))["ok"], true);
         assert_eq!(exchange(&controls, json!({ "command": "poke" }))["message"], "Checking.");
         assert_eq!(*controls.poked.lock().unwrap(), [Some("fake".to_string()), None]);
 
-        let refused = exchange(&controls, json!({ "command": "poke", "printer": "nowhere" }));
+        let refused = exchange(&controls, json!({ "command": "poke", "waiter": "nowhere" }));
         assert_eq!(refused["ok"], false);
-        assert_eq!(refused["message"], "there is no printer called nowhere");
+        assert_eq!(refused["message"], "there is no waiter called nowhere");
 
         assert_eq!(exchange(&controls, json!({ "command": "tell", "chef_de_partie": "t1", "message": "Push it" }))["message"], "Told t1.");
         assert_eq!(exchange(&controls, json!({ "command": "tell", "chef_de_partie": "t1" }))["ok"], false);

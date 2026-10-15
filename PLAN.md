@@ -5,7 +5,7 @@ Where things stand as of 2026-09-20.
 ## Built
 
 Works end to end and is tested live, against scratch projects and a fake
-printer:
+waiter:
 
 - `sous-chef chat` — a terminal conversation. A chef de partie is `claude -p`,
   resumed per conversation.
@@ -27,7 +27,7 @@ printer:
 - Plating — scores against the style, haiku rewrites, two fidelity
   questions (does the rewrite invent anything, does it drop anything) because
   one question couldn't tell a good rewrite from one that lost a fact.
-- `sous-chef run` — printers as config, one generic poller, an expediter: backlog
+- `sous-chef run` — waiters as config, one generic poller, an expediter: backlog
   ignored on first look, unknown senders ignored, injections refused with a
   reply, one turn at a time per conversation.
 - `sous-chef setup`, `sous-chef log -f`, cleanup of profiles left by dead
@@ -54,7 +54,7 @@ printer:
   Basecamp, HEY, Fizzy. It closes with how to add any MCP server.
 - Two standings, decided in code when a message arrives. **Trusted** people
   — `people` in the config — can change how the agent behaves and have it do
-  things on the machine it runs on. **Everyone else**, on a printer with
+  things on the machine it runs on. **Everyone else**, on a waiter with
   `anyone`, can hand it work and nothing more. The difference isn't only what
   the chef de partie is told: a turn on an untrusted word runs with none of Claude
   Code's own tools, so it has no shell and can't read or write on the host —
@@ -77,9 +77,9 @@ printer:
   write to an inbox.
 - A tool is given to the agent as itself or as you, and only the first
   listens. As a Basecamp agent it gets its own CLI profile, the verified
-  Basecamp printer with `anyone: true` — Basecamp already decides who can reach
+  Basecamp waiter with `anyone: true` — Basecamp already decides who can reach
   an agent — and `basecamp watch` as the trigger when that command exists. As
-  you, it gets the MCP server and no printer: everything addressed to you would
+  you, it gets the MCP server and no waiter: everything addressed to you would
   wake it, and it would answer your colleagues in your name.
   Not run: the agent branch. It hands the terminal to Claude with the pasted
   instruction and where the token has to end up, which is what Basecamp's
@@ -92,18 +92,18 @@ printer:
   sockets. The socket is also the lock against a second sous-chef.
 - `sous-chef poke` instead of waiting for the poll. MCP can't push: `hey mcp`
   offers tools only, no resources or subscriptions. So whatever does know
-  something happened pokes her, and she reads the printer herself — a poke
+  something happened pokes her, and she reads the waiter herself — a poke
   carries no message and no sender, so being able to poke isn't being able to
   speak as someone. The timer stays as the fallback.
-- Triggers. A printer can name a command that runs for as long as sous-chef does
+- Triggers. A waiter can name a command that runs for as long as sous-chef does
   and prints a line whenever something happens — `hey watch --events new` is
   the one this was made for. Every line is a poke; she restarts the command
   when it exits, reaps it, and takes it down with her. In the config:
   `"trigger": { "command": "hey", "args": ["watch", "--events", "new"] }`.
-- Basecamp as a printer, checked against the real thing. `basecamp watch` (on
+- Basecamp as a waiter, checked against the real thing. `basecamp watch` (on
   the CLI's `tui` branch) is a trigger as it is. Reading after the poke is
   `basecamp_account` / `get_my_notifications`, and that took three changes: a
-  printer's `id` can be several pointers, because Basecamp bumps the same
+  waiter's `id` can be several pointers, because Basecamp bumps the same
   notification for every new comment (`["/id", "/unread_at"]`); `text` can be
   several too, because the body is only an excerpt (`/title`,
   `/content_excerpt`, `/app_url` — the chef de partie reads the rest with its tools);
@@ -116,14 +116,14 @@ printer:
   opened itself to agents, notifications included. An agent has an inbox of
   its own instead (`basecamp_eventfeed` / `poll_inbox`): every event that
   reached it and why, read from a position, with people reported by id. So a
-  printer can carry a `cursor` — a pointer into the answer whose value goes
+  waiter can carry a `cursor` — a pointer into the answer whose value goes
   into the next call, kept on disk, moved only when nothing in the answer was
   held back — and a `note` said to the chef de partie with every message, here that
   an item is an event and the recording has to be read first. Both are
   generic; setup knows the inbox's shape, and looks up the ids of the people
   it is told to trust, in every profile and account the chef has. Checked
   against the real inbox once, dry: it answers.
-- `sous-chef printer check <name>` reads a printer once and shows what the agent would
+- `sous-chef waiter check <name>` reads a waiter once and shows what the agent would
   make of it, without remembering or waking anything. Run read-only against
   the real server: 23 of 23 notifications parsed.
 - A store. One SQLite file (`sous-chef.db`, WAL, numbered migrations on
@@ -200,7 +200,7 @@ printer:
 - `sous-chef backup` and `sous-chef restore`. One zip, written 600: config, style,
   CLAUDE.md, tokens (unless `--without-secrets`), the database snapshotted
   through SQLite so it is safe while she runs, the log, which messages each
-  printer has seen, every chef de partie's session and the Claude transcript behind it,
+  waiter has seen, every chef de partie's session and the Claude transcript behind it,
   and katami's export of what she has learned. Transcripts are filed by chef de partie
   name, so a backup restores under a different home. Restore refuses while she
   runs, refuses to replace an existing install without `--force`, and refuses
@@ -229,7 +229,7 @@ Not built, or not working yet:
 - **The config as a ceiling.** `people` decides who is heard and
   `minutes_per_run` is the budget. Who may ask for what, and the widest grant
   a commis can get, don't exist yet — that needs your call on the shape.
-- **Real printers.** The agent has no account of her own anywhere, so no printer has
+- **Real waiters.** The agent has no account of her own anywhere, so no waiter has
   been configured against a real server.
 - **Dependencies, Rust and services in the sandbox** — decided the other way
   round from "registries through the proxy": commis keep having no network,
@@ -347,7 +347,7 @@ adversarial tests of haiku as a taster.
   person to approve, unblock, or decide.
 - Prefer classifiers (Jev) over LLMs wherever the answer is a pick from a
   list. They are faster and cost almost nothing.
-- Printers: Basecamp, Fizzy, HEY, GitHub.
+- Waiters: Basecamp, Fizzy, HEY, GitHub.
 - The agent is an agent, not a tool. She can fail, but she never answers with the
   equivalent of "tool call failed". When she hits a limit she tries another
   way, offers what she can do instead, or says what she tried, like a
@@ -367,7 +367,7 @@ adversarial tests of haiku as a taster.
   it just read. The agent can read the config and cannot rewrite it; the broker
   refuses any grant above it.
 - **What protects unsandboxed chefs de partie.** The config decides who can ask for
-  server-level work; who sent a message comes from the printer, never the text;
+  server-level work; who sent a message comes from the waiter, never the text;
   the pass stays read-only; Jev scores each inbound message before a
   chef de partie reads it. Past that, a convincing message from someone allowed to ask
   still gets acted on. That risk is accepted.
@@ -390,15 +390,15 @@ adversarial tests of haiku as a taster.
 
 ### Expediter
 
-Plain code plus a classifier, no LLM. Polls the printers (polling beats
+Plain code plus a classifier, no LLM. Polls the waiters (polling beats
 webhooks behind Tailscale), works out which conversation a message belongs to,
 and wakes the chef de partie that owns it with `claude --resume`, or starts a new one.
 One chef de partie per conversation, with a lock so it never runs twice at once;
 different conversations run in parallel. Who sent a message comes from the
-printer's own data, never from the message text.
+waiter's own data, never from the message text.
 
-The agent gets her own account on each printer, so assigning her work is a normal
-assignment and the printer's permissions limit what she sees.
+The agent gets her own account on each waiter, so assigning her work is a normal
+assignment and the waiter's permissions limit what she sees.
 
 ### Chef de partie
 
@@ -458,7 +458,7 @@ haiku as a detector gets steered by the text it's scoring; Jev can't be.
 
 ### Setup
 
-`sous-chef setup` walks through: Claude accounts, the printers and who may ask for
+`sous-chef setup` walks through: Claude accounts, the waiters and who may ask for
 what, MCP servers, and three optional things —
 
 - a Jev API key (see Taster)
@@ -485,7 +485,7 @@ no session ever talks to a server directly.
 - Tool results are untrusted and get the same injection score as inbound
   messages. Tool descriptions are pinned when the server is added.
 - Inbound stays built in: MCP has no usable "something new arrived", so each
-  printer has a small poller. A server without a poller means the agent can act
+  waiter has a small poller. A server without a poller means the agent can act
   there but nobody can talk to her there.
 
 ### Plating

@@ -76,7 +76,7 @@ pub fn status() -> Result<()> {
             if let Some(login) = status["github_login"].as_str() {
                 println!("On GitHub as: {login}");
             }
-            println!("Listening on: {}", names(&status["printers"]));
+            println!("Listening on: {}", names(&status["waiters"]));
             match status["going_on"].as_array() {
                 Some(turns) => {
                     print_going_on(turns);
@@ -92,8 +92,8 @@ pub fn status() -> Result<()> {
     Ok(())
 }
 
-pub fn poke(printer: Option<&str>) -> Result<()> {
-    answered(control::ask(json!({ "command": "poke", "printer": printer }))?)
+pub fn poke(waiter: Option<&str>) -> Result<()> {
+    answered(control::ask(json!({ "command": "poke", "waiter": waiter }))?)
 }
 
 pub fn tell(chef_de_partie: &str, message: &str) -> Result<()> {

@@ -56,7 +56,7 @@ fn run_what_is_due(runtime: &Arc<Runtime>, turns: &Arc<Turns>) -> Result<()> {
                 wake_in_turn(runtime, turns, conversation, standing, said);
             }
             None => {
-                logs::event("schedule.orphaned", json!({ "schedule": schedule.id, "printer": schedule.origin.printer }));
+                logs::event("schedule.orphaned", json!({ "schedule": schedule.id, "waiter": schedule.origin.waiter }));
                 store.remove_schedule(schedule.id)?;
             }
         }

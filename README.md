@@ -80,7 +80,7 @@ sous-chef start                                # start in the background (throug
 sous-chef stop                                 # stop sous-chef and everything it started
 sous-chef restart                              # stop and start; every turn picks up where it was
 sous-chef status
-sous-chef poke basecamp                        # check a printer now instead of at the next tick; hook this to webhooks, mail filters, cron
+sous-chef poke basecamp                        # check a waiter now instead of at the next tick; hook this to webhooks, mail filters, cron
 sous-chef run                                  # or run in this terminal until ctrl+c
 sous-chef chat "the deploy is red, have a look" # or talk to the agent from this terminal
 sous-chef chat --conversation billing "..."    # each conversation gets its own chef de partie
@@ -96,7 +96,7 @@ sous-chef mcp add basecamp -- basecamp mcp     # also accepts a server's changed
 sous-chef mcp list
 sous-chef mcp prose basecamp create_comment content   # this argument is prose for people: restyle it
 sous-chef mcp remove basecamp
-sous-chef printer check basecamp               # read a printer once and show what the agent would make of it, without acting
+sous-chef waiter check basecamp               # read a waiter once and show what the agent would make of it, without acting
 
 # Stations: other machines commis can work on
 sous-chef station add server user@server.example.com   # installs what a commis needs and sends a test commis
@@ -123,7 +123,7 @@ the code, the config, the logs and the commands.
 |---|---|---|
 | **Chef** | You, the person the agent works for. | Sets the menu and gives the orders. |
 | **Sous-chef** | The harness itself: the program that runs everything below. | Runs the kitchen on the chef's behalf. |
-| **Ticket printers** | Where messages come from: Basecamp, HEY, Fizzy, GitHub, Sentry. One message is a ticket. | Orders come in from the dining room as tickets. |
+| **Waiters** | Where messages come from and replies go back to: Basecamp, HEY, Fizzy, GitHub, Sentry. One message is a ticket. | Bring orders in from the dining room as tickets, and carry the plates back out. |
 | **Expediter** | Takes each ticket and calls it to the chef de partie that owns its conversation, or starts a new one. | Reads every ticket and calls it to the right station. |
 | **Chef de partie** | One per conversation. Plans the work, writes the briefs and sends commis to do it. | Owns one order from start to finish. |
 | **Commis** | A sandboxed Claude Code session that does the actual work in one project folder, and reports back. | The junior cook who does the prep, under a chef de partie. |
@@ -140,7 +140,7 @@ at. Everything it does beyond the sandbox goes through an MCP request that a
 broker arbitrates.
 
 ```
-+- PRINTERS ---------------------------------------------------------+
++- WAITERS ----------------------------------------------------------+
 |                                                                    |
 |            Basecamp / Fizzy / HEY / Github / Sentry                |
 |                                                                    |

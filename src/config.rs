@@ -28,9 +28,9 @@ pub struct Config {
     pub mcp_servers: BTreeMap<String, McpServer>,
     /// Where people talk to the agent, by name.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    #[serde(alias = "sources")]
-    pub printers: BTreeMap<String, Printer>,
-    /// Who the agent listens to: the sender id a printer reports, to the name she
+    #[serde(alias = "printers", alias = "sources")]
+    pub waiters: BTreeMap<String, Waiter>,
+    /// Who the agent listens to: the sender id a waiter reports, to the name she
     /// knows them by. Anyone else is ignored.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub people: BTreeMap<String, String>,
@@ -175,7 +175,7 @@ impl Default for Config {
         Config {
             name: anna(),
             mcp_servers: BTreeMap::new(),
-            printers: BTreeMap::new(),
+            waiters: BTreeMap::new(),
             people: BTreeMap::new(),
             jev_url: None,
             rotate_accounts: true,
@@ -188,12 +188,12 @@ impl Default for Config {
     }
 }
 
-/// A printer is an MCP server sous-chef also listens on. There is no push in MCP,
+/// A waiter is an MCP server sous-chef also listens on. There is no push in MCP,
 /// so listening is calling one of the server's own tools on a timer and
 /// picking the new messages out of the JSON it answers with. The four
 /// pointers are JSON pointers into each item.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Printer {
+pub struct Waiter {
     pub server: String,
     pub watch: Call,
     #[serde(default = "default_interval")]
@@ -206,15 +206,15 @@ pub struct Printer {
     pub id: Pointers,
     pub conversation: String,
     pub sender: String,
-    /// What to call the sender, for a printer that listens to anyone.
+    /// What to call the sender, for a waiter that listens to anyone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sender_name: Option<String>,
     /// Listen to everyone who can reach her here, not only to `people`. For
-    /// a printer that already decides who that is: an agent in Basecamp only
+    /// a waiter that already decides who that is: an agent in Basecamp only
     /// hears from the projects it was added to.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub anyone: bool,
-    /// What the chef de partie is told. Several pointers when a printer splits it up —
+    /// What the chef de partie is told. Several pointers when a waiter splits it up —
     /// a title, an excerpt, and a link to read the rest.
     pub text: Pointers,
     /// The call that answers in a conversation. `{conversation}` and
@@ -224,21 +224,21 @@ pub struct Printer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply: Option<Call>,
     /// A command that runs for as long as sous-chef does and prints a line
-    /// whenever something happens on this printer — `hey watch --events new`,
+    /// whenever something happens on this waiter — `hey watch --events new`,
     /// say. Every line is a poke. With one of these the timer only has to
     /// catch what the trigger missed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger: Option<Trigger>,
-    /// For a printer that is read from a position rather than as a list of
+    /// For a waiter that is read from a position rather than as a list of
     /// what is unread: where the position is in an answer, and where it goes
     /// in the next call.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<Cursor>,
-    /// Said to the chef de partie with every message from here, for a printer whose
+    /// Said to the chef de partie with every message from here, for a waiter whose
     /// messages aren't what someone wrote but a pointer to it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
-    /// How to find out what was last said, for a printer whose items stand
+    /// How to find out what was last said, for a waiter whose items stand
     /// for a conversation and not a message: Basecamp's unreads keep the
     /// first comment's writer and excerpt however many comments follow, and
     /// whose word a turn runs on has to be whoever actually spoke last.
@@ -247,7 +247,7 @@ pub struct Printer {
 }
 
 /// Two JSON pointers: `from` into the watch tool's answer, `into` into its
-/// arguments. The first call goes out as written, which for such a printer
+/// arguments. The first call goes out as written, which for such a waiter
 /// means "from now"; every later one carries the position the last answer
 /// gave. It is kept on disk, so what arrived while sous-chef was down is there
 /// when it comes back.
@@ -451,10 +451,13 @@ mod tests {
     fn a_config_written_with_the_old_keys_still_loads() {
         let config: Config = serde_json::from_str(
             r#"{ "rotate_suppliers": false, "minutes_per_thread_turn": 5, "hands_per_thread": 2,
+                 "printers": { "basecamp": { "server": "basecamp", "watch": { "tool": "inbox", "arguments": {} },
+                   "items": "/items", "id": "/id", "conversation": "/conversation", "sender": "/sender", "text": "/text" } },
                  "models": { "threads": "sonnet", "hands": "haiku", "reviewers": "haiku", "screening": "haiku", "editing": "sonnet" } }"#,
         )
         .unwrap();
         assert!(!config.rotate_accounts);
+        assert_eq!(config.waiters["basecamp"].server, "basecamp");
         assert_eq!(config.minutes_per_chef_de_partie_turn, 5);
         assert_eq!(config.commis_per_chef_de_partie, 2);
         assert_eq!(

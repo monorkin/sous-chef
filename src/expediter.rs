@@ -1,8 +1,8 @@
-//! `sous-chef run`: listen on every printer and wake the right chef de partie
+//! `sous-chef run`: listen on every waiter and wake the right chef de partie
 //! for every ticket.
 //!
 //! No model decides who gets heard. Who sent a message comes from the
-//! printer's own data, never from the text, and whether she listens to them
+//! waiter's own data, never from the text, and whether she listens to them
 //! is a lookup in the config. Text from someone she listens to is still
 //! untrusted — the taster screens it before a chef de partie, who is not
 //! sandboxed, reads it.
@@ -23,7 +23,7 @@ use crate::at_work;
 use crate::chef_de_partie;
 use crate::claude::{self, OutOfQuota};
 use crate::clock;
-use crate::config::Printer;
+use crate::config::Waiter;
 use crate::control::{self, Controls};
 use crate::conversation::{self, Conversation, Origin, Standing, Terminal};
 use crate::cooling;
@@ -31,7 +31,7 @@ use crate::github;
 use crate::kitchen;
 use crate::logs;
 use crate::paths;
-use crate::printer::{self, Message, Position, Printed, Seen};
+use crate::waiter::{self, Message, Position, Printed, Seen};
 use crate::runtime::Runtime;
 use crate::store::{PendingTurn, Store};
 use crate::accounts;
@@ -48,16 +48,16 @@ pub fn run() -> Result<()> {
     let runtime = Arc::new(Runtime::start()?);
     let turns = runtime.turns.clone();
     let mut pokes = HashMap::new();
-    for (name, printer) in runtime.config.printers.clone() {
+    for (name, waiter) in runtime.config.waiters.clone() {
         let (poke, poked) = mpsc::channel();
-        if let Some(trigger) = printer.trigger.clone() {
+        if let Some(trigger) = waiter.trigger.clone() {
             triggers::watch(name.clone(), trigger, poke.clone());
         }
         pokes.insert(name.clone(), poke);
 
         let runtime = runtime.clone();
         let turns = turns.clone();
-        os_thread::spawn(move || listen(&runtime, &turns, &name, &printer, &poked));
+        os_thread::spawn(move || listen(&runtime, &turns, &name, &waiter, &poked));
     }
 
     control::serve(Arc::new(Running {
@@ -78,7 +78,7 @@ pub fn run() -> Result<()> {
     if let Err(error) = kitchen::tell_of_commis_a_restart_stopped(&runtime) {
         logs::event("commis.not_told", json!({ "error": format!("{error:#}") }));
     }
-    logs::event("sous-chef.listening", json!({ "printers": runtime.config.printers.keys().collect::<Vec<_>>() }));
+    logs::event("sous-chef.listening", json!({ "waiters": runtime.config.waiters.keys().collect::<Vec<_>>() }));
     loop {
         os_thread::park();
     }
@@ -147,18 +147,18 @@ impl Controls for Running {
             "process": std::process::id(),
             "claude_login": claude::login(),
             "github_login": github::login(),
-            "printers": self.pokes.lock().unwrap().keys().collect::<Vec<_>>(),
+            "waiters": self.pokes.lock().unwrap().keys().collect::<Vec<_>>(),
             "conversations": self.turns.busy_conversations(),
             "going_on": self.going_on(),
             "board": self.board(),
         })
     }
 
-    fn poke(&self, printer: Option<&str>) -> Result<String> {
+    fn poke(&self, waiter: Option<&str>) -> Result<String> {
         let pokes = self.pokes.lock().unwrap();
-        match printer {
+        match waiter {
             Some(name) => {
-                let poke = pokes.get(name).with_context(|| format!("there is no printer called {name}"))?;
+                let poke = pokes.get(name).with_context(|| format!("there is no waiter called {name}"))?;
                 let _ = poke.send(());
                 Ok(format!("Checking {name}."))
             }
@@ -166,7 +166,7 @@ impl Controls for Running {
                 for poke in pokes.values() {
                     let _ = poke.send(());
                 }
-                Ok("Checking every printer.".to_string())
+                Ok("Checking every waiter.".to_string())
             }
         }
     }
@@ -177,7 +177,7 @@ impl Controls for Running {
     fn tell(&self, chef_de_partie: &str, message: &str) -> Result<String> {
         let store = Store::open_at(&self.runtime.database)?;
         let origin = chef_de_partie_on_the_board(&store, chef_de_partie)?;
-        let conversation = conversation_at(&self.runtime, &origin).context("that chef de partie's printer is no longer in the config")?;
+        let conversation = conversation_at(&self.runtime, &origin).context("that chef de partie's waiter is no longer in the config")?;
         let key = conversation.key().to_string();
         logs::event("chef_de_partie.told", json!({ "conversation": key }));
         wake_in_turn(&self.runtime, &self.turns, conversation, Standing::Trusted, format!("{FROM_THE_TERMINAL}{message}"));
@@ -247,32 +247,32 @@ fn stop_on_signals() {
 }
 
 
-/// Checks the printer whenever it is poked, and on a timer for everything
+/// Checks the waiter whenever it is poked, and on a timer for everything
 /// nobody pokes her about.
-fn listen(runtime: &Arc<Runtime>, turns: &Arc<Turns>, name: &str, printer: &Printer, poked: &Receiver<()>) {
+fn listen(runtime: &Arc<Runtime>, turns: &Arc<Turns>, name: &str, waiter: &Waiter, poked: &Receiver<()>) {
     let mut seen = Seen::load(name);
     loop {
-        if let Err(error) = check(runtime, turns, name, printer, &mut seen) {
-            logs::event("printer.failed", json!({ "printer": name, "error": format!("{error:#}") }));
+        if let Err(error) = check(runtime, turns, name, waiter, &mut seen) {
+            logs::event("waiter.failed", json!({ "waiter": name, "error": format!("{error:#}") }));
         }
-        let _ = poked.recv_timeout(Duration::from_secs(printer.every_seconds));
+        let _ = poked.recv_timeout(Duration::from_secs(waiter.every_seconds));
         while poked.try_recv().is_ok() {}
     }
 }
 
-fn check(runtime: &Arc<Runtime>, turns: &Arc<Turns>, name: &str, printer: &Printer, seen: &mut Seen) -> Result<()> {
-    let position = Position::of(name, printer);
+fn check(runtime: &Arc<Runtime>, turns: &Arc<Turns>, name: &str, waiter: &Waiter, seen: &mut Seen) -> Result<()> {
+    let position = Position::of(name, waiter);
     let arguments = match &position {
-        Some(position) => position.in_arguments(&printer.watch.arguments),
-        None => printer.watch.arguments.clone(),
+        Some(position) => position.in_arguments(&waiter.watch.arguments),
+        None => waiter.watch.arguments.clone(),
     };
-    let answer = runtime.catalog.call(&printer.server, &printer.watch.tool, &arguments)?;
+    let answer = runtime.catalog.call(&waiter.server, &waiter.watch.tool, &arguments)?;
 
     let mut held_back = false;
-    for message in printer::messages_in(printer, &answer)? {
+    for message in waiter::messages_in(waiter, &answer)? {
         if seen.is_new(&message.id) {
             let id = message.id.clone();
-            if dispatch(runtime, turns, name, printer, message) == Dispatched::NotYet {
+            if dispatch(runtime, turns, name, waiter, message) == Dispatched::NotYet {
                 seen.forget(&id);
                 held_back = true;
             }
@@ -297,33 +297,33 @@ enum Dispatched {
     NotYet,
 }
 
-fn dispatch(runtime: &Arc<Runtime>, turns: &Arc<Turns>, name: &str, printer: &Printer, message: Message) -> Dispatched {
-    let message = as_last_spoken(runtime, name, printer, message);
-    let conversation: Arc<dyn Conversation> = match owned_elsewhere(runtime, name, printer, &message.conversation) {
+fn dispatch(runtime: &Arc<Runtime>, turns: &Arc<Turns>, name: &str, waiter: &Waiter, message: Message) -> Dispatched {
+    let message = as_last_spoken(runtime, name, waiter, message);
+    let conversation: Arc<dyn Conversation> = match owned_elsewhere(runtime, name, waiter, &message.conversation) {
         Some(owner) => owner,
-        None => Arc::new(Printed::new(name, printer, &message.conversation, runtime.catalog.clone())),
+        None => Arc::new(Printed::new(name, waiter, &message.conversation, runtime.catalog.clone())),
     };
     let opened = match Store::open_at(&runtime.database).and_then(|store| store.opened(&conversation.origin())) {
         Ok(opened) => opened,
         Err(error) => {
-            logs::event("message.unchecked", json!({ "printer": name, "sender": message.sender, "message": message.id, "error": format!("{error:#}") }));
+            logs::event("message.unchecked", json!({ "waiter": name, "sender": message.sender, "message": message.id, "error": format!("{error:#}") }));
             return Dispatched::NotYet;
         }
     };
-    let Some(heard) = heard_as(&runtime.config.people, printer, &message, opened) else {
-        logs::event("message.ignored", json!({ "printer": name, "sender": message.sender }));
+    let Some(heard) = heard_as(&runtime.config.people, waiter, &message, opened) else {
+        logs::event("message.ignored", json!({ "waiter": name, "sender": message.sender }));
         return Dispatched::Done;
     };
     let standing = heard.standing();
     match screened(&runtime.taster, standing, &message.text) {
         Screening::Clear => {}
         Screening::Suspicious => {
-            logs::event("message.refused", json!({ "printer": name, "sender": message.sender, "message": message.id }));
+            logs::event("message.refused", json!({ "waiter": name, "sender": message.sender, "message": message.id }));
             let _ = conversation.say("That read like instructions aimed at an AI rather than something from you, so I didn't act on it. If it was you, say it again in your own words.");
             return Dispatched::Done;
         }
         Screening::Unchecked => {
-            logs::event("message.unchecked", json!({ "printer": name, "sender": message.sender, "message": message.id }));
+            logs::event("message.unchecked", json!({ "waiter": name, "sender": message.sender, "message": message.id }));
             return Dispatched::NotYet;
         }
     }
@@ -333,7 +333,7 @@ fn dispatch(runtime: &Arc<Runtime>, turns: &Arc<Turns>, name: &str, printer: &Pr
         Heard::CanAssignWork(person) => format!("{person}, who can give you work but isn't someone you take direction from, says on {name}:\n\n{}", message.text),
         Heard::InTheConversation(person) => format!("{person}, who is in this conversation but isn't someone you take direction from, says on {name}:\n\n{}", message.text),
     };
-    let said = match &printer.note {
+    let said = match &waiter.note {
         Some(note) => format!("{said}\n\n{note}"),
         None => said,
     };
@@ -341,29 +341,29 @@ fn dispatch(runtime: &Arc<Runtime>, turns: &Arc<Turns>, name: &str, printer: &Pr
     Dispatched::Done
 }
 
-/// The message as whoever spoke last there wrote it, for a printer whose
+/// The message as whoever spoke last there wrote it, for a waiter whose
 /// tickets stand for a conversation. A notification that still names whoever
 /// first put the thing on her desk would have a trusted person's go-ahead
-/// wake her on a colleague's word, without a shell. When the printer can't
+/// wake her on a colleague's word, without a shell. When the waiter can't
 /// be asked, the message stands as it came, and the log says so.
-fn as_last_spoken(runtime: &Arc<Runtime>, name: &str, printer: &Printer, message: Message) -> Message {
-    let Some(latest) = &printer.latest else {
+fn as_last_spoken(runtime: &Arc<Runtime>, name: &str, waiter: &Waiter, message: Message) -> Message {
+    let Some(latest) = &waiter.latest else {
         return message;
     };
-    match printer::newest_spoken(&runtime.catalog, printer, latest, &message.conversation) {
+    match waiter::newest_spoken(&runtime.catalog, waiter, latest, &message.conversation) {
         Ok(Some(spoken)) => {
-            logs::event("message.as_last_spoken", json!({ "printer": name, "message": message.id, "was": message.sender, "sender": spoken.sender }));
+            logs::event("message.as_last_spoken", json!({ "waiter": name, "message": message.id, "was": message.sender, "sender": spoken.sender }));
             with_last_spoken(message, spoken)
         }
         Ok(None) => message,
         Err(error) => {
-            logs::event("message.not_as_last_spoken", json!({ "printer": name, "message": message.id, "error": format!("{error:#}") }));
+            logs::event("message.not_as_last_spoken", json!({ "waiter": name, "message": message.id, "error": format!("{error:#}") }));
             message
         }
     }
 }
 
-fn with_last_spoken(message: Message, spoken: printer::Spoken) -> Message {
+fn with_last_spoken(message: Message, spoken: waiter::Spoken) -> Message {
     let who = spoken.sender_name.clone().unwrap_or_else(|| spoken.sender.clone());
     Message {
         text: format!("{}\n\nThe newest comment there, by {who}:\n\n{}", message.text, spoken.text),
@@ -378,15 +378,15 @@ fn with_last_spoken(message: Message, spoken: printer::Spoken) -> Message {
 /// would otherwise hear the go-ahead and have to pass it on; the chef de
 /// partie with the work hears it instead, and the sender can't tell the
 /// difference.
-fn owned_elsewhere(runtime: &Arc<Runtime>, name: &str, printer: &Printer, conversation: &str) -> Option<Arc<dyn Conversation>> {
+fn owned_elsewhere(runtime: &Arc<Runtime>, name: &str, waiter: &Waiter, conversation: &str) -> Option<Arc<dyn Conversation>> {
     let store = Store::open_at(&runtime.database).ok()?;
     for recording in recording_ids_in(conversation) {
         if let Ok(Some((chef_de_partie, origin))) = store.chef_de_partie_working_on(&recording)
-            && origin.printer == name
+            && origin.waiter == name
             && origin.conversation != conversation
         {
             logs::event("message.routed", json!({ "to": chef_de_partie, "about": recording }));
-            return Some(Arc::new(Printed::new(name, printer, &origin.conversation, runtime.catalog.clone())));
+            return Some(Arc::new(Printed::new(name, waiter, &origin.conversation, runtime.catalog.clone())));
         }
     }
     None
@@ -403,7 +403,7 @@ fn recording_ids_in(conversation: &str) -> Vec<String> {
 }
 
 /// A trusted person's message isn't screened: who sent it comes from the
-/// printer's own data, never from the text, and they direct her anyway. What
+/// waiter's own data, never from the text, and they direct her anyway. What
 /// she reads while working on it is still screened — a colleague's comment
 /// in a listing is someone else's words, whoever woke her.
 fn screened(taster: &Taster, standing: Standing, text: &str) -> Screening {
@@ -433,15 +433,15 @@ impl Heard {
 
 /// Who a message is heard as and on what standing, or nobody. Someone in
 /// `people` is trusted, and heard under the name given there. Anyone else is
-/// heard on a printer that lets everyone hand out work, or in a conversation
+/// heard on a waiter that lets everyone hand out work, or in a conversation
 /// a trusted person already opened — so nobody outside `people` can start
 /// her on something, but whoever she is working with can answer her. The
-/// sender comes from the printer's own data, never from the text.
-fn heard_as(people: &BTreeMap<String, String>, printer: &Printer, message: &Message, opened: bool) -> Option<Heard> {
+/// sender comes from the waiter's own data, never from the text.
+fn heard_as(people: &BTreeMap<String, String>, waiter: &Waiter, message: &Message, opened: bool) -> Option<Heard> {
     let name = || message.sender_name.clone().unwrap_or_else(|| message.sender.clone());
     match people.get(&message.sender) {
         Some(person) => Some(Heard::Trusted(person.clone())),
-        None if printer.anyone => Some(Heard::CanAssignWork(name())),
+        None if waiter.anyone => Some(Heard::CanAssignWork(name())),
         None if opened => Some(Heard::InTheConversation(name())),
         None => None,
     }
@@ -518,7 +518,7 @@ fn pick_up_where_she_left_off(runtime: &Arc<Runtime>, turns: &Arc<Turns>) -> Res
     for (turn, said) in left.iter().zip(as_picked_up(&left)) {
         store.forget_turn(turn.id)?;
         let Some(conversation) = conversation_at(runtime, &turn.origin) else {
-            logs::event("turn.orphaned", json!({ "printer": turn.origin.printer }));
+            logs::event("turn.orphaned", json!({ "waiter": turn.origin.waiter }));
             continue;
         };
         logs::event("turn.resumed", json!({ "conversation": conversation.key() }));
@@ -576,14 +576,14 @@ fn wake_once_there_is_quota(runtime: &Arc<Runtime>, conversation: &Arc<dyn Conve
 }
 
 /// The conversation a schedule or a message belongs to, found again from
-/// where it lives. None when its printer has since been taken out of the
+/// where it lives. None when its waiter has since been taken out of the
 /// config.
 pub fn conversation_at(runtime: &Arc<Runtime>, origin: &Origin) -> Option<Arc<dyn Conversation>> {
-    if origin.printer == conversation::TERMINAL {
+    if origin.waiter == conversation::TERMINAL {
         Some(Arc::new(Terminal::new(&origin.conversation)))
     } else {
-        let printer = runtime.config.printers.get(&origin.printer)?;
-        Some(Arc::new(Printed::new(&origin.printer, printer, &origin.conversation, runtime.catalog.clone())))
+        let waiter = runtime.config.waiters.get(&origin.waiter)?;
+        Some(Arc::new(Printed::new(&origin.waiter, waiter, &origin.conversation, runtime.catalog.clone())))
     }
 }
 
@@ -595,7 +595,7 @@ mod tests {
     fn after_a_restart_only_the_turn_that_was_running_is_told_it_was_stopped() {
         let turn = |id: i64, conversation: &str, said: &str| PendingTurn {
             id,
-            origin: Origin { printer: "basecamp".to_string(), conversation: conversation.to_string() },
+            origin: Origin { waiter: "basecamp".to_string(), conversation: conversation.to_string() },
             trusted: true,
             said: said.to_string(),
         };
@@ -625,7 +625,7 @@ mod tests {
             sender_name: Some("Sam".to_string()),
             text: "Re: the to-do\n\nSam's first comment\n\nhttps://app.example.com/todos/12345678901".to_string(),
         };
-        let spoken = printer::Spoken { sender: "10000002".to_string(), sender_name: Some("Marta".to_string()), text: "go".to_string() };
+        let spoken = waiter::Spoken { sender: "10000002".to_string(), sender_name: Some("Marta".to_string()), text: "go".to_string() };
         let heard = with_last_spoken(notification, spoken);
         assert_eq!(heard.sender, "10000002", "standing follows who spoke last, not who spoke first");
         assert_eq!(heard.sender_name.as_deref(), Some("Marta"));
@@ -655,7 +655,7 @@ mod tests {
     #[test]
     fn trust_comes_from_the_config_and_everyone_else_is_heard_only_where_they_are_let_in() {
         let people = BTreeMap::from([("marta@example.com".to_string(), "Marta".to_string())]);
-        let mut printer: Printer = serde_json::from_value(json!({
+        let mut waiter: Waiter = serde_json::from_value(json!({
             "server": "basecamp", "watch": { "tool": "inbox" }, "items": "/m",
             "id": "/id", "conversation": "/c", "sender": "/from", "text": "/body",
         }))
@@ -671,16 +671,16 @@ mod tests {
         let nobody_opened = false;
         let marta_opened = true;
 
-        assert_eq!(heard_as(&people, &printer, &from("marta@example.com", None), nobody_opened), Some(Heard::Trusted("Marta".to_string())));
-        assert_eq!(heard_as(&people, &printer, &from("ivo@example.com", Some("Ivo")), nobody_opened), None, "nobody outside `people` starts her on something");
+        assert_eq!(heard_as(&people, &waiter, &from("marta@example.com", None), nobody_opened), Some(Heard::Trusted("Marta".to_string())));
+        assert_eq!(heard_as(&people, &waiter, &from("ivo@example.com", Some("Ivo")), nobody_opened), None, "nobody outside `people` starts her on something");
 
-        let ivo_answering = heard_as(&people, &printer, &from("ivo@example.com", Some("Ivo")), marta_opened);
+        let ivo_answering = heard_as(&people, &waiter, &from("ivo@example.com", Some("Ivo")), marta_opened);
         assert_eq!(ivo_answering, Some(Heard::InTheConversation("Ivo".to_string())), "but whoever she is working with can answer her");
         assert_eq!(ivo_answering.unwrap().standing(), Standing::CanAssignWork, "with no more standing than that");
 
-        printer.anyone = true;
-        assert_eq!(heard_as(&people, &printer, &from("ivo@example.com", Some("Ivo")), nobody_opened), Some(Heard::CanAssignWork("Ivo".to_string())));
-        assert_eq!(heard_as(&people, &printer, &from("x@example.com", None), nobody_opened), Some(Heard::CanAssignWork("x@example.com".to_string())));
-        assert_eq!(heard_as(&people, &printer, &from("marta@example.com", None), marta_opened).unwrap().standing(), Standing::Trusted);
+        waiter.anyone = true;
+        assert_eq!(heard_as(&people, &waiter, &from("ivo@example.com", Some("Ivo")), nobody_opened), Some(Heard::CanAssignWork("Ivo".to_string())));
+        assert_eq!(heard_as(&people, &waiter, &from("x@example.com", None), nobody_opened), Some(Heard::CanAssignWork("x@example.com".to_string())));
+        assert_eq!(heard_as(&people, &waiter, &from("marta@example.com", None), marta_opened).unwrap().standing(), Standing::Trusted);
     }
 }

@@ -5,7 +5,7 @@
 //! Claude accounts she rotates between, the Claude Code folder she works
 //! from with its settings and skills, the config of the tools she has her
 //! own profile in and the logins those tools keep in the keyring, the
-//! database of schedules and the work board, which messages each printer has
+//! database of schedules and the work board, which messages each waiter has
 //! already seen, the log, every chef de partie's session and the Claude
 //! transcript behind it — without those a restored chef de partie would have
 //! forgotten its conversation — an export of what she has learned, and whether she
@@ -183,7 +183,7 @@ impl Archive {
         self.add_file_if_there(&paths::log_file(), "data/log.jsonl")?;
         self.add_tree(&paths::data_dir().join("chefs_de_partie"), "data/chefs_de_partie")?;
         self.add_tree(&paths::commis_dir(), "data/commis")?;
-        self.add_tree(&paths::data_dir().join("printers"), "data/printers")
+        self.add_tree(&paths::data_dir().join("waiters"), "data/waiters")
     }
 
     fn add_transcripts(&mut self) -> Result<()> {
@@ -344,15 +344,15 @@ fn destination_of(name: &str) -> Result<Option<PathBuf>> {
     Ok(destination)
 }
 
-/// A backup made before the kitchen names filed these folders as `threads`,
-/// `hands` and `sources`.
+/// A backup made under older names filed these folders as `threads`,
+/// `hands`, `sources` or `printers`.
 fn current_data_path(mut parts: impl Iterator<Item = String>) -> PathBuf {
     let mut path = PathBuf::new();
     if let Some(folder) = parts.next() {
         match folder.as_str() {
             "threads" => path.push("chefs_de_partie"),
             "hands" => path.push("commis"),
-            "sources" => path.push("printers"),
+            "sources" | "printers" => path.push("waiters"),
             _ => path.push(folder),
         }
     }
@@ -378,7 +378,7 @@ fn is_a_root_of_hers(place: &Path) -> bool {
 
 /// `--force` replaces the sous-chef that is here, so what the backup may not
 /// hold must not be left over from her: the old personality, chefs de partie
-/// the backup never had, what her printers had already seen. An old write-ahead
+/// the backup never had, what her waiters had already seen. An old write-ahead
 /// log would be replayed over the restored database.
 fn make_room_for_the_backup() -> Result<()> {
     for name in CONFIG_FILES {
@@ -387,7 +387,7 @@ fn make_room_for_the_backup() -> Result<()> {
     for suffix in ["", "-wal", "-shm"] {
         remove_if_there(&paths::data_dir().join(format!("{}{suffix}", paths::DATABASE)))?;
     }
-    for folder in ["chefs_de_partie", "printers"] {
+    for folder in ["chefs_de_partie", "waiters"] {
         match fs::remove_dir_all(paths::data_dir().join(folder)) {
             Err(error) if error.kind() != ErrorKind::NotFound => return Err(error.into()),
             _ => {}
@@ -457,7 +457,8 @@ mod tests {
             "a backup from before the kitchen names restores into the new folders"
         );
         assert_eq!(destination_of("data/hands/h1/note").unwrap(), Some(paths::data_dir().join("commis/h1/note")));
-        assert_eq!(destination_of("data/sources/basecamp/seen").unwrap(), Some(paths::data_dir().join("printers/basecamp/seen")));
+        assert_eq!(destination_of("data/sources/basecamp/seen").unwrap(), Some(paths::data_dir().join("waiters/basecamp/seen")));
+        assert_eq!(destination_of("data/printers/basecamp/seen").unwrap(), Some(paths::data_dir().join("waiters/basecamp/seen")));
         assert_eq!(
             destination_of("transcripts/terminal-main/abc.jsonl").unwrap(),
             Some(transcripts::of_chef_de_partie("terminal-main").join("abc.jsonl"))
