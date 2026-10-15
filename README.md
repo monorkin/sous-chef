@@ -40,6 +40,13 @@ what the agent is called and logging it in to Claude with an account of its own:
 sous-chef setup
 ```
 
+To have the agent listen on GitHub — mentions, assignments and review
+requests for a GitHub login of its own — install GitHub's MCP server first:
+
+```bash
+mise use -g aqua:github/github-mcp-server
+```
+
 ## Upgrading
 
 ```bash

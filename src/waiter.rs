@@ -9,7 +9,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::config::{Call, Cursor, Latest, Pointers, Waiter};
+use crate::config::{Call, Cursor, Latest, Listing, Opening, Pointers, Waiter};
 use crate::conversation::{Conversation, Origin};
 use crate::fsutil;
 use crate::logs;
@@ -22,9 +22,13 @@ const LONGEST_KEY_PART: usize = 32;
 pub struct Message {
     pub id: String,
     pub conversation: String,
+    /// Empty only from a waiter whose items name nobody, until `latest`
+    /// has said who spoke.
     pub sender: String,
     pub sender_name: Option<String>,
     pub text: String,
+    /// The item as the watch tool gave it, for `latest` to read values off.
+    pub item: Value,
 }
 
 pub fn messages_in(waiter: &Waiter, answer: &str) -> Result<Vec<Message>> {
@@ -37,36 +41,87 @@ pub fn messages_in(waiter: &Waiter, answer: &str) -> Result<Vec<Message>> {
     Ok(items
         .iter()
         .filter_map(|item| {
+            let sender = match &waiter.sender {
+                Some(pointer) => text_at(item, pointer)?,
+                None => String::new(),
+            };
             Some(Message {
                 id: all_at(item, &waiter.id, ":")?,
                 conversation: text_at(item, &waiter.conversation)?,
-                sender: text_at(item, &waiter.sender)?,
+                sender,
                 sender_name: waiter.sender_name.as_deref().and_then(|it| text_at(item, it)),
                 text: all_at(item, &waiter.text, "\n\n")?,
+                item: item.clone(),
             })
         })
         .collect())
 }
 
-/// What someone said, as the waiter reports it.
+/// What someone said, as the waiter reports it, and when, where the
+/// waiter says.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Spoken {
     pub sender: String,
     pub sender_name: Option<String>,
     pub text: String,
+    pub at: Option<String>,
 }
 
 const MOST_PAGES: u64 = 30;
 
-/// Who spoke last where the message points, asked of the waiter page by
-/// page until a page comes back empty. None when nothing was said there.
-pub fn newest_spoken(catalog: &Catalog, waiter: &Waiter, latest: &Latest, conversation: &str) -> Result<Option<Spoken>> {
-    let recording = last_id_in(conversation).context("the conversation's name carries no id to ask about")?;
+/// Who spoke last where the message points: the newest of what each of the
+/// waiter's listings that applies to it has, by when it was said. When
+/// nothing was said there, whoever opened it, if the waiter can ask; None
+/// otherwise.
+pub fn newest_spoken(catalog: &Catalog, waiter: &Waiter, latest: &Latest, message: &Message) -> Result<Option<Spoken>> {
+    let recording = last_id_in(&message.conversation).context("the conversation's name carries no id to ask about")?;
+    let mut newest = None;
+    for listing in std::iter::once(&latest.listing).chain(&latest.also).filter(|it| applies(it, &message.item)) {
+        newest = newer(newest, newest_in(catalog, waiter, listing, &recording, &message.item)?);
+    }
+    match (newest, &latest.opening) {
+        (None, Some(opening)) => {
+            let arguments = filled_for(&opening.call.arguments, &recording, 1, &message.item);
+            let answer = catalog.call(&waiter.server, &opening.call.tool, &arguments)?;
+            opened_by(opening, &answer)
+        }
+        (newest, _) => Ok(newest),
+    }
+}
+
+/// Tells the server a message was dealt with, for a waiter that can.
+pub fn mark_handled(catalog: &Catalog, waiter: &Waiter, item: &Value) -> Result<()> {
+    if let Some(handled) = &waiter.handled {
+        catalog.call(&waiter.server, &handled.tool, &filled_for(&handled.arguments, "", 1, item))?;
+    }
+    Ok(())
+}
+
+/// The later of the two by when it was said; on a tie, or with no time to
+/// go by, the one already found, which is the first listing's.
+fn newer(found: Option<Spoken>, candidate: Option<Spoken>) -> Option<Spoken> {
+    match (found, candidate) {
+        (Some(found), Some(candidate)) if candidate.at > found.at => Some(candidate),
+        (None, candidate) => candidate,
+        (found, _) => found,
+    }
+}
+
+fn applies(listing: &Listing, item: &Value) -> bool {
+    match &listing.when {
+        Some(when) => text_at(item, &when.pointer).is_some_and(|it| it == when.is),
+        None => true,
+    }
+}
+
+/// The last item of the last page that has any, asked page by page until
+/// one comes back empty.
+fn newest_in(catalog: &Catalog, waiter: &Waiter, listing: &Listing, recording: &str, item: &Value) -> Result<Option<Spoken>> {
     let mut newest = None;
     for page in 1..=MOST_PAGES {
-        let arguments = filled_for(&latest.call.arguments, &recording, page);
-        let answer = catalog.call(&waiter.server, &latest.call.tool, &arguments)?;
-        match last_on_page(latest, &answer)? {
+        let arguments = filled_for(&listing.call.arguments, recording, page, item);
+        let answer = catalog.call(&waiter.server, &listing.call.tool, &arguments)?;
+        match last_on_page(listing, &answer)? {
             Some(spoken) => newest = Some(spoken),
             None => break,
         }
@@ -78,37 +133,50 @@ fn last_id_in(conversation: &str) -> Option<String> {
     conversation.rsplit(|it: char| !it.is_ascii_digit()).find(|it| !it.is_empty()).map(String::from)
 }
 
-fn filled_for(template: &Value, recording: &str, page: u64) -> Value {
+fn filled_for(template: &Value, recording: &str, page: u64, item: &Value) -> Value {
     match template {
         Value::String(it) if it == "{recording}" => number_or_text(recording),
         Value::String(it) if it == "{page}" => Value::from(page),
+        Value::String(it) if it.starts_with("{/") && it.ends_with('}') => item.pointer(&it[1..it.len() - 1]).cloned().unwrap_or(Value::Null),
         Value::String(it) => Value::from(it.replace("{recording}", recording).replace("{page}", &page.to_string())),
-        Value::Array(items) => items.iter().map(|it| filled_for(it, recording, page)).collect(),
+        Value::Array(items) => items.iter().map(|it| filled_for(it, recording, page, item)).collect(),
         Value::Object(fields) => fields
             .iter()
-            .map(|(name, value)| (name.clone(), filled_for(value, recording, page)))
+            .map(|(name, value)| (name.clone(), filled_for(value, recording, page, item)))
             .collect::<serde_json::Map<_, _>>()
             .into(),
         other => other.clone(),
     }
 }
 
+fn opened_by(opening: &Opening, answer: &str) -> Result<Option<Spoken>> {
+    let answer: Value = serde_json::from_str(answer).context("the opening did not answer with JSON")?;
+    Ok(text_at(&answer, &opening.sender).map(|sender| Spoken {
+        sender,
+        sender_name: opening.sender_name.as_deref().and_then(|it| text_at(&answer, it)),
+        text: text_at(&answer, &opening.text).unwrap_or_default(),
+        at: None,
+    }))
+}
+
 /// The last item on a page, or None for an empty page. The list is looked
 /// for at each of the pointers, since a server's first page and its later
-/// ones can differ in shape.
-fn last_on_page(latest: &Latest, answer: &str) -> Result<Option<Spoken>> {
+/// ones can differ in shape. An item with nothing written — a review that
+/// is only its line comments — still says who spoke.
+fn last_on_page(listing: &Listing, answer: &str) -> Result<Option<Spoken>> {
     let answer: Value = serde_json::from_str(answer).context("the listing did not answer with JSON")?;
-    let items = latest
+    let items = listing
         .items
         .each()
         .into_iter()
         .find_map(|pointer| answer.pointer(pointer).and_then(Value::as_array))
-        .with_context(|| format!("there is no list at {} in the listing's answer", latest.items.each().join(" or ")))?;
+        .with_context(|| format!("there is no list at {} in the listing's answer", listing.items.each().join(" or ")))?;
     Ok(items.last().and_then(|item| {
         Some(Spoken {
-            sender: text_at(item, &latest.sender)?,
-            sender_name: latest.sender_name.as_deref().and_then(|it| text_at(item, it)),
-            text: text_at(item, &latest.text)?,
+            sender: text_at(item, &listing.sender)?,
+            sender_name: listing.sender_name.as_deref().and_then(|it| text_at(item, it)),
+            text: text_at(item, &listing.text).unwrap_or_default(),
+            at: listing.at.as_deref().and_then(|it| text_at(item, it)),
         })
     }))
 }
@@ -381,6 +449,7 @@ mod tests {
                 sender: "marta@example.com".to_string(),
                 sender_name: None,
                 text: "Can you look at this?".to_string(),
+                item: answer["unread"][0].clone(),
             }]
         );
         assert_eq!(waiter().every_seconds, 60);
@@ -489,19 +558,83 @@ mod tests {
             "sender": "/creator/id", "sender_name": "/creator/name", "text": "/content",
         }))
         .unwrap();
+        let listing = &latest.listing;
 
         let first_page = r#"[{"creator":{"id":1,"name":"Sam"},"content":"<p>first</p>"},{"creator":{"id":2,"name":"Marta"},"content":"go"}]"#;
         let later_page = r#"{"next_page":3,"results":[{"creator":{"id":3,"name":"Ivo"},"content":"wait"}]}"#;
         let empty = r#"{"next_page":4,"results":[]}"#;
-        assert_eq!(last_on_page(&latest, first_page).unwrap(), Some(Spoken { sender: "2".to_string(), sender_name: Some("Marta".to_string()), text: "go".to_string() }));
-        assert_eq!(last_on_page(&latest, later_page).unwrap().unwrap().sender, "3", "a later page wraps its list");
-        assert_eq!(last_on_page(&latest, empty).unwrap(), None);
-        assert!(last_on_page(&latest, r#"{"error":"nope"}"#).is_err());
+        assert_eq!(last_on_page(listing, first_page).unwrap(), Some(Spoken { sender: "2".to_string(), sender_name: Some("Marta".to_string()), text: "go".to_string(), at: None }));
+        assert_eq!(last_on_page(listing, later_page).unwrap().unwrap().sender, "3", "a later page wraps its list");
+        assert_eq!(last_on_page(listing, empty).unwrap(), None);
+        assert!(last_on_page(listing, r#"{"error":"nope"}"#).is_err());
 
-        let filled = filled_for(&latest.call.arguments, "12345678901", 2);
+        let filled = filled_for(&listing.call.arguments, "12345678901", 2, &json!({}));
         assert_eq!(filled, json!({ "action": "list_comments", "params": { "recordingId": 12345678901u64, "page": 2 } }));
         assert_eq!(last_id_in("https://3.basecampapi.com/1234567/buckets/87654321/recordings/12345678901/subscription.json").as_deref(), Some("12345678901"));
         assert_eq!(last_id_in("main"), None);
+    }
+
+    #[test]
+    fn of_comments_and_reviews_the_newest_is_who_spoke_last() {
+        let latest: Latest = serde_json::from_value(json!({
+            "call": { "tool": "issue_read" }, "items": "", "sender": "/user/login", "text": "/body", "at": "/created_at",
+            "also": [{
+                "call": { "tool": "pull_request_read" }, "items": "", "sender": "/user/login", "text": "/body", "at": "/submitted_at",
+                "when": { "pointer": "/subject/type", "is": "PullRequest" },
+            }],
+        }))
+        .unwrap();
+        let reviews = &latest.also[0];
+        let comment = last_on_page(&latest.listing, r#"[{"user":{"login":"marta"},"body":"go ahead","created_at":"2026-10-15T09:00:00Z"}]"#).unwrap();
+        let review = last_on_page(reviews, r#"[{"user":{"login":"ivo"},"body":"","submitted_at":"2026-10-15T10:00:00Z"}]"#).unwrap();
+        assert_eq!(review.as_ref().unwrap().text, "", "a review that is only line comments still says who spoke");
+
+        assert_eq!(newer(comment.clone(), review.clone()).unwrap().sender, "ivo", "a later review outranks an earlier comment");
+        assert_eq!(newer(review.clone(), comment.clone()).unwrap().sender, "ivo", "whichever was asked first");
+        assert_eq!(newer(None, comment.clone()).unwrap().sender, "marta");
+        assert_eq!(newer(comment.clone(), None).unwrap().sender, "marta");
+
+        assert!(applies(reviews, &json!({ "subject": { "type": "PullRequest" } })));
+        assert!(!applies(reviews, &json!({ "subject": { "type": "Issue" } })), "an issue has no reviews to ask for");
+        assert!(applies(&latest.listing, &json!({})));
+    }
+
+    #[test]
+    fn a_waiter_whose_items_name_nobody_reads_them_with_no_sender_yet() {
+        let waiter: Waiter = serde_json::from_value(json!({
+            "server": "github", "watch": { "tool": "list_notifications" }, "items": "",
+            "id": "/id", "conversation": "/subject/url", "text": "/subject/title",
+        }))
+        .unwrap();
+        let answer = json!([{ "id": "1", "subject": { "title": "Fix the build", "url": "https://api.example.com/repos/shop/web/issues/42" } }]);
+
+        let messages = messages_in(&waiter, &answer.to_string()).unwrap();
+        assert_eq!(messages[0].sender, "", "who spoke is left for latest to find");
+        assert_eq!(messages[0].item, answer[0]);
+    }
+
+    #[test]
+    fn what_was_said_is_asked_about_with_values_off_the_item() {
+        let item = json!({ "repository": { "name": "web", "owner": { "login": "shop" } } });
+        let arguments = json!({ "owner": "{/repository/owner/login}", "repo": "{/repository/name}", "issue_number": "{recording}", "page": "{page}", "gone": "{/nowhere}" });
+
+        assert_eq!(
+            filled_for(&arguments, "42", 3, &item),
+            json!({ "owner": "shop", "repo": "web", "issue_number": 42, "page": 3, "gone": null })
+        );
+    }
+
+    #[test]
+    fn a_conversation_nobody_answered_was_last_spoken_in_by_whoever_opened_it() {
+        let opening: Opening = serde_json::from_value(json!({ "call": { "tool": "issue_read" }, "sender": "/user/login", "text": "/body" })).unwrap();
+
+        assert_eq!(
+            opened_by(&opening, r#"{"user":{"login":"marta"},"body":"Please fix the build"}"#).unwrap(),
+            Some(Spoken { sender: "marta".to_string(), sender_name: None, text: "Please fix the build".to_string(), at: None })
+        );
+        assert_eq!(opened_by(&opening, r#"{"user":{"login":"marta"},"body":null}"#).unwrap().unwrap().text, "", "an empty description is still hers");
+        assert_eq!(opened_by(&opening, r#"{"message":"Not Found"}"#).unwrap(), None);
+        assert!(opened_by(&opening, "not json").is_err());
     }
 
     #[test]

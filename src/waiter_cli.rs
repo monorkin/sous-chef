@@ -40,15 +40,28 @@ pub fn check(name: &str) -> Result<()> {
         println!("This waiter is read from a position, so an empty answer is the usual one: it holds what arrived since it last looked.");
     }
     for message in &messages {
-        let listened_to = match config.people.get(&message.sender) {
+        // Asked the way she asks it, since who spoke last is whose word it is
+        let sender = match &waiter.latest {
+            Some(latest) => match waiter::newest_spoken(&catalog, waiter, latest, message) {
+                Ok(Some(spoken)) => spoken.sender,
+                Ok(None) => message.sender.clone(),
+                Err(error) => {
+                    println!("\n  couldn't tell who spoke last: {error:#}");
+                    message.sender.clone()
+                }
+            },
+            None => message.sender.clone(),
+        };
+        let listened_to = match waiter.trusted.get(&sender) {
+            _ if sender.is_empty() => "ignored: nobody could be found to have said it".to_string(),
             Some(person) => format!("listens to: {person}"),
             None if waiter.anyone => "listens to: anyone here".to_string(),
-            None => "ignored: not in people".to_string(),
+            None => "ignored: not trusted on this waiter".to_string(),
         };
         println!();
         println!("  id            {}", shortened(&message.id));
         println!("  conversation  {}", shortened(&message.conversation));
-        println!("  sender        {} ({listened_to})", message.sender);
+        println!("  sender        {sender} ({listened_to})");
         println!("  text          {}", shortened(message.text.lines().next().unwrap_or_default()));
     }
     Ok(())

@@ -5,6 +5,7 @@
 use anyhow::Result;
 use std::collections::BTreeMap;
 
+use crate::config::Waiter;
 use crate::prompt::Question;
 use crate::setup::{Account, ActsAs, GoOn, RecognizedBy, Tool, Wizard, name_from, own_tool_config, profile_name, words};
 use crate::setup_basecamp;
@@ -72,15 +73,16 @@ impl Wizard<'_> {
             return self.asking.trouble(&format!("Couldn't add the {} server: {error:#}", tool.title));
         }
         self.asking.done(&format!("{agent} can use {} as {who}.", tool.title))?;
-        // A user that isn't an admin sees everyone else's address redacted,
-        // so what her notifications report about a sender is their id
-        let recognized_by = if its_own { RecognizedBy::PersonId } else { RecognizedBy::Address };
-        let trusted = self.trusted_people(tool, agent, recognized_by)?;
         if its_own {
+            // A user that isn't an admin sees everyone else's address
+            // redacted, so what her notifications report about a sender is
+            // their id
+            let trusted = self.trusted_people(tool, agent, RecognizedBy::PersonId)?;
             let anyone = self.anyone_may_assign_work(tool, agent)?;
-            self.doing.add_waiter(tool.name, setup_basecamp::notifications_waiter(anyone))?;
+            let heard = trusted.len();
+            self.doing.add_waiter(tool.name, Waiter { trusted, ..setup_basecamp::notifications_waiter(anyone) })?;
             self.asking.done(&format!("{agent} listens in {} as {who}.", tool.title))?;
-            self.say_who_is_heard(tool, agent, trusted, anyone)
+            self.say_who_is_heard(tool, agent, heard, anyone, setup_basecamp::EVERY_SECONDS)
         } else {
             self.asking.note(&format!("  {agent} gets the tools only and won't listen there, or it would answer your colleagues in your name."))
         }
@@ -141,19 +143,20 @@ impl Wizard<'_> {
 
         let trusted = self.trusted_people(tool, agent, RecognizedBy::PersonId)?;
         let anyone = self.anyone_may_assign_work(tool, agent)?;
-        self.doing.add_waiter(tool.name, setup_basecamp::agent_waiter(anyone))?;
+        let heard = trusted.len();
+        self.doing.add_waiter(tool.name, Waiter { trusted, ..setup_basecamp::agent_waiter(anyone) })?;
 
         self.asking.done(&format!("{agent} is in {} under its own profile.", tool.title))?;
-        self.say_who_is_heard(tool, agent, trusted, anyone)
+        self.say_who_is_heard(tool, agent, heard, anyone, setup_basecamp::EVERY_SECONDS)
     }
 
-    fn say_who_is_heard(&mut self, tool: &Tool, agent: &str, trusted: usize, anyone: bool) -> Result<()> {
+    pub fn say_who_is_heard(&mut self, tool: &Tool, agent: &str, trusted: usize, anyone: bool, every_seconds: u64) -> Result<()> {
         match (trusted, anyone) {
             (0, false) => self.asking.trouble(&format!("Nobody is trusted and nobody else may assign work, so {agent} won't act on anything in {}. Run setup again to change that.", tool.title))?,
             (_, false) => self.asking.done(&format!("{agent} acts only on the people you named, and ignores everyone else."))?,
             (_, true) => self.asking.done(&format!("Anyone who can reach {agent} there can hand it work; only the people you named can direct it."))?,
         }
-        self.asking.done(&format!("{agent} checks for mentions and assignments every {} seconds.", setup_basecamp::EVERY_SECONDS))
+        self.asking.done(&format!("{agent} checks for mentions and assignments every {every_seconds} seconds."))
     }
 
     fn as_you(&mut self, tool: &Tool, agent: &str) -> Result<()> {
@@ -175,33 +178,37 @@ impl Wizard<'_> {
         if let Err(error) = self.doing.add_server(tool.name, &command, BTreeMap::new(), ActsAs::Chef) {
             return self.asking.trouble(&format!("Couldn't add the {} server: {error:#}", tool.title));
         }
-        self.asking.done(&format!("{agent} can use {} as {who}.", tool.title))?;
-
-        if tool.asks_who_to_trust {
-            self.trusted_people(tool, agent, RecognizedBy::Address)?;
-        }
-        Ok(())
+        self.asking.done(&format!("{agent} can use {} as {who}.", tool.title))
     }
 
-    /// Who the agent takes direction from: the people who can change how it
-    /// behaves and have it do things on the machine it runs on. It is the one
-    /// decision about authority that the chef makes, here, and that is looked
-    /// up in code ever after. Whoever is running setup is offered first.
-    fn trusted_people(&mut self, tool: &Tool, agent: &str, recognized_by: RecognizedBy) -> Result<usize> {
-        let mut trusted = 0;
-        let hint = format!("Trusted people can tell {agent} to change how it behaves, and to do things on this computer, like restarting it. They are found in {} by their email address.", tool.title);
+    /// Who the agent takes direction from where it listens: the people who
+    /// can change how it behaves and have it do things on the machine it
+    /// runs on. It is the one decision about authority that the chef makes,
+    /// here, for each waiter, and that is looked up in code ever after.
+    /// Whoever is running setup is offered first. Answers with what the
+    /// waiter will report each of them as, to the name she calls them.
+    pub fn trusted_people(&mut self, tool: &Tool, agent: &str, recognized_by: RecognizedBy) -> Result<BTreeMap<String, String>> {
+        let mut trusted = BTreeMap::new();
+        let found_by = match recognized_by {
+            RecognizedBy::PersonId => "email address",
+            RecognizedBy::Login => "username",
+        };
+        let hint = format!("Trusted people can tell {agent} to change how it behaves, and to do things on this computer, like restarting it. They are found in {} by their {found_by}.", tool.title);
 
-        for address in self.doing.logged_in_as(tool.name) {
+        let offered = self.doing.logged_in_as(tool.name);
+        for address in &offered {
             let question = format!("Should {agent} trust {address}?");
             if self.asking.yes(&Question { title: "Trusted person", question: &question, hint: &hint }, true)? {
-                trusted += self.trust(tool, agent, &address, recognized_by)?;
+                self.trust(tool, agent, address, recognized_by, &mut trusted)?;
             }
         }
 
-        let question = format!("Who else should {agent} trust in {}? Their email address.", tool.title);
+        // Nobody offered, nobody "else": the chef may well be the one to name
+        let who = if offered.is_empty() { "Who" } else { "Who else" };
+        let question = format!("{who} should {agent} trust in {}? Their {found_by}.", tool.title);
         let last_hint = format!("{hint} Enter when there's nobody else.");
         while let Some(address) = self.asking.string(&Question { title: "Trusted person", question: &question, hint: &last_hint }, None)? {
-            trusted += self.trust(tool, agent, &address, recognized_by)?;
+            self.trust(tool, agent, &address, recognized_by, &mut trusted)?;
         }
         Ok(trusted)
     }
@@ -209,7 +216,7 @@ impl Wizard<'_> {
     /// Whether everyone else who can reach the agent may hand it work. For
     /// them a turn runs with no shell and no way to write on this machine, so
     /// the difference from a trusted person isn't only what the agent is told.
-    fn anyone_may_assign_work(&mut self, tool: &Tool, agent: &str) -> Result<bool> {
+    pub fn anyone_may_assign_work(&mut self, tool: &Tool, agent: &str) -> Result<bool> {
         let question = format!("Should anyone in {} be able to assign {agent} work?", tool.title);
         let hint = format!("People you didn't name can hand {agent} work and nothing more. For them it works only through sandboxed commis, with no shell on this computer, and it won't change how it behaves.");
         self.asking.yes(&Question { title: "Work from anyone", question: &question, hint: &hint }, true)
@@ -218,14 +225,13 @@ impl Wizard<'_> {
     /// Someone is trusted as whatever the waiter will report them as. Where
     /// that is an id and not their address, the id is looked up now: a person
     /// the tool doesn't know would be trusted on paper and never recognized.
-    fn trust(&mut self, tool: &Tool, agent: &str, address: &str, recognized_by: RecognizedBy) -> Result<usize> {
+    fn trust(&mut self, tool: &Tool, agent: &str, address: &str, recognized_by: RecognizedBy, trusted: &mut BTreeMap<String, String>) -> Result<()> {
         let reported_as = match recognized_by {
-            RecognizedBy::Address => vec![address.to_string()],
+            RecognizedBy::Login => vec![address.to_string()],
             RecognizedBy::PersonId => self.doing.person_ids(tool.name, address),
         };
         if reported_as.is_empty() {
-            self.asking.trouble(&format!("Couldn't find {address} in {}, so {agent} wouldn't recognize them. Nobody was added.", tool.title))?;
-            return Ok(0);
+            return self.asking.trouble(&format!("Couldn't find {address} in {}, so {agent} wouldn't recognize them. Nobody was added.", tool.title));
         }
 
         let suggested = name_from(address);
@@ -233,11 +239,10 @@ impl Wizard<'_> {
         let name_question = Question { title: "Their name", question: &question, hint: "How the agent refers to this person." };
         let name = self.asking.string(&name_question, Some(&suggested))?.unwrap_or(suggested);
 
-        for reported in &reported_as {
-            self.doing.trust(reported, &name)?;
+        for reported in reported_as {
+            trusted.insert(reported, name.clone());
         }
-        self.asking.done(&format!("{agent} trusts {name} ({address})."))?;
-        Ok(1)
+        self.asking.done(&format!("{agent} trusts {name} ({address})."))
     }
 
     fn pick_account(&mut self, tool: &Tool, profile: Option<&str>) -> Result<Option<Account>> {

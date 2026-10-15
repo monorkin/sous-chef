@@ -109,6 +109,8 @@ impl Doing for Machine {
             "hey" => json_from("hey", &["account", "list", "--json"])
                 .and_then(|it| it["data"].as_array().cloned())
                 .map(|accounts| accounts.iter().map(|it| it["email"].clone()).collect()),
+            // The chef's own gh, not hers: they are the one to offer
+            "github" => json_from("gh", &["api", "user"]).map(|it| vec![it["login"].clone()]),
             _ => None,
         };
 
@@ -208,15 +210,14 @@ impl Doing for Machine {
         mcp_cli::register(name, settings)
     }
 
-    fn add_waiter(&mut self, name: &str, waiter: Waiter) -> Result<()> {
+    fn add_waiter(&mut self, name: &str, mut waiter: Waiter) -> Result<()> {
         let mut config = Config::load()?;
+        if let Some(existing) = config.waiters.remove(name) {
+            for (sender, person) in existing.trusted {
+                waiter.trusted.entry(sender).or_insert(person);
+            }
+        }
         config.waiters.insert(name.to_string(), waiter);
-        config.save()
-    }
-
-    fn trust(&mut self, address: &str, name: &str) -> Result<()> {
-        let mut config = Config::load()?;
-        config.people.insert(address.to_string(), name.to_string());
         config.save()
     }
 }

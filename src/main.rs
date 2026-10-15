@@ -46,7 +46,11 @@ mod secrets;
 mod service;
 mod setup;
 mod setup_basecamp;
+mod setup_claude;
+mod setup_github;
 mod setup_machine;
+#[cfg(test)]
+mod setup_rehearsal;
 mod setup_tools;
 mod skills;
 mod station;

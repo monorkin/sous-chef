@@ -30,10 +30,10 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     #[serde(alias = "printers", alias = "sources")]
     pub waiters: BTreeMap<String, Waiter>,
-    /// Who the agent listens to: the sender id a waiter reports, to the name she
-    /// knows them by. Anyone else is ignored.
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub people: BTreeMap<String, String>,
+    /// Who she took direction from before that was each waiter's own: read
+    /// from an older config, handed to every waiter, and never written again.
+    #[serde(default, skip_serializing)]
+    people: BTreeMap<String, String>,
     /// Where Jev is reached, when not at TypeSafe directly: a gateway in
     /// front of it, or a stand-in for runs that must not touch the real one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -205,7 +205,11 @@ pub struct Waiter {
     /// comment on a thread, so there it is the id and when it went unread.
     pub id: Pointers,
     pub conversation: String,
-    pub sender: String,
+    /// Left out when the items name nobody — a GitHub notification says
+    /// what happened, not who did it — and then who spoke is only ever
+    /// what `latest` finds, and a message it can't tell is ignored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sender: Option<String>,
     /// What to call the sender, for a waiter that listens to anyone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sender_name: Option<String>,
@@ -214,6 +218,12 @@ pub struct Waiter {
     /// hears from the projects it was added to.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub anyone: bool,
+    /// Who she takes direction from here: the sender this waiter reports, to
+    /// the name she knows them by. Each waiter has its own, since each tool
+    /// knows people by something of its own — an id, an address, a username
+    /// — and one tool's id can be another's username.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub trusted: BTreeMap<String, String>,
     /// What the chef de partie is told. Several pointers when a waiter splits it up —
     /// a title, an excerpt, and a link to read the rest.
     pub text: Pointers,
@@ -223,6 +233,12 @@ pub struct Waiter {
     /// chef de partie then answers with the server's own tools.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reply: Option<Call>,
+    /// The call that marks a message dealt with on the server, made once
+    /// she has acted on it or let it go: a GitHub notification marked read.
+    /// A JSON pointer in braces — `{/id}` — in its arguments is that value of
+    /// the message's item.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub handled: Option<Call>,
     /// A command that runs for as long as sous-chef does and prints a line
     /// whenever something happens on this waiter — `hey watch --events new`,
     /// say. Every line is a poke. With one of these the timer only has to
@@ -290,16 +306,61 @@ pub struct Call {
     pub arguments: serde_json::Value,
 }
 
-/// The call that lists what was said in a conversation, oldest first, a page
-/// at a time. `{recording}` in its arguments is the last id in the
-/// conversation's name and `{page}` the page asked for; pages are read until
-/// one is empty, and the last item is who spoke last.
+/// How to find out who spoke last in a conversation: what is said there, in
+/// one listing or several, and who opened it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Latest {
+    #[serde(flatten)]
+    pub listing: Listing,
+    /// Other places things are said in the same conversation — a pull
+    /// request's reviews beside its comments — whose newest is weighed
+    /// against the first listing's by when it was said.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub also: Vec<Listing>,
+    /// Who opened the conversation, for when nobody has answered there yet:
+    /// an issue with no comments was last spoken in by whoever wrote it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opening: Option<Opening>,
+}
+
+/// The call that lists what was said in a conversation, oldest first, a page
+/// at a time. `{recording}` in its arguments is the last id in the
+/// conversation's name, `{page}` the page asked for, and a JSON pointer in
+/// braces — `{/repository/name}` — that value of the item the message came
+/// from; pages are read until one is empty, and the last item is who spoke
+/// last.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Listing {
     pub call: Call,
     /// Where the list is in an answer. Several when a server's pages differ
     /// in shape: a first page that is the list itself, later ones that wrap it.
     pub items: Pointers,
+    pub sender: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sender_name: Option<String>,
+    pub text: String,
+    /// When an item was said, as a time that sorts as text — ISO 8601 in
+    /// UTC — for weighing one listing's newest against another's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub at: Option<String>,
+    /// Only asked about messages whose item has this value: a pull
+    /// request's reviews, which an issue hasn't got.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub when: Option<When>,
+}
+
+/// A value an item has at a pointer.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct When {
+    pub pointer: String,
+    pub is: String,
+}
+
+/// The call that reads what started a conversation, and where in its answer
+/// who wrote it and what they wrote are.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Opening {
+    pub call: Call,
     pub sender: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sender_name: Option<String>,
@@ -356,10 +417,22 @@ impl Config {
     fn load_from(path: &Path) -> Result<Config> {
         if path.exists() {
             let text = fsutil::read_trusted(path)?;
-            serde_json::from_str(&text).with_context(|| format!("{} is not valid", path.display()))
+            let config: Config = serde_json::from_str(&text).with_context(|| format!("{} is not valid", path.display()))?;
+            Ok(config.with_people_on_their_waiters())
         } else {
             Ok(Config::default())
         }
+    }
+
+    /// Everyone an older config trusted is trusted on every waiter that has
+    /// nobody of its own, which is where they were heard before: nobody
+    /// gains or loses a say in the move.
+    fn with_people_on_their_waiters(mut self) -> Config {
+        let people = std::mem::take(&mut self.people);
+        for waiter in self.waiters.values_mut().filter(|it| it.trusted.is_empty()) {
+            waiter.trusted = people.clone();
+        }
+        self
     }
 
     fn save_to(&self, path: &Path) -> Result<()> {
@@ -393,6 +466,7 @@ fn prose(path: &Path) -> Result<Option<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn a_missing_file_is_an_empty_config_and_saving_round_trips() {
@@ -422,6 +496,28 @@ mod tests {
 
         std::fs::set_permissions(&path, std::os::unix::fs::PermissionsExt::from_mode(0o666)).unwrap();
         assert!(Config::load_from(&path).is_err());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn people_an_older_config_trusted_are_trusted_on_every_waiter_that_has_nobody_of_its_own() {
+        let directory = std::env::temp_dir().join(format!("sous-chef-config-people-{}", std::process::id()));
+        let path = directory.join("config.json");
+        let waiter = json!({ "server": "s", "watch": { "tool": "t" }, "items": "", "id": "/id", "conversation": "/c", "text": "/t" });
+        let mut its_own = waiter.clone();
+        its_own["trusted"] = json!({ "ivo": "Ivo" });
+        let older = json!({ "people": { "1001": "Marta" }, "waiters": { "basecamp": waiter, "github": its_own } });
+        std::fs::create_dir_all(&directory).unwrap();
+        fsutil::write_private(&path, &older.to_string()).unwrap();
+
+        let config = Config::load_from(&path).unwrap();
+        assert_eq!(config.waiters["basecamp"].trusted, BTreeMap::from([("1001".to_string(), "Marta".to_string())]));
+        assert_eq!(config.waiters["github"].trusted, BTreeMap::from([("ivo".to_string(), "Ivo".to_string())]), "a waiter's own people are its own");
+
+        config.save_to(&path).unwrap();
+        let saved: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert!(saved.get("people").is_none(), "and the old list is never written again");
+        assert_eq!(Config::load_from(&path).unwrap(), config);
         std::fs::remove_dir_all(directory).unwrap();
     }
 

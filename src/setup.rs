@@ -47,15 +47,12 @@ pub struct Tool {
     pub title: &'static str,
     pub program: &'static str,
     pub can_be_its_own_agent: bool,
-    /// Places where colleagues hand out work, so where it matters whose word
-    /// the agent acts on. Mail is not one: anyone can write to an inbox.
-    pub asks_who_to_trust: bool,
 }
 
 const TOOLS: [Tool; 3] = [
-    Tool { name: "basecamp", title: "Basecamp", program: "basecamp", can_be_its_own_agent: true, asks_who_to_trust: true },
-    Tool { name: "hey", title: "HEY", program: "hey", can_be_its_own_agent: false, asks_who_to_trust: false },
-    Tool { name: "fizzy", title: "Fizzy", program: "fizzy", can_be_its_own_agent: false, asks_who_to_trust: true },
+    Tool { name: "basecamp", title: "Basecamp", program: "basecamp", can_be_its_own_agent: true },
+    Tool { name: "hey", title: "HEY", program: "hey", can_be_its_own_agent: false },
+    Tool { name: "fizzy", title: "Fizzy", program: "fizzy", can_be_its_own_agent: false },
 ];
 
 #[derive(Debug, Clone, PartialEq)]
@@ -69,21 +66,7 @@ pub struct Account {
     pub name: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct ClaudeAccount {
-    pub email: String,
-    pub organization: Option<String>,
-}
-
-impl ClaudeAccount {
-    /// How the account is named when the chef is asked to hand it over.
-    pub fn described(&self) -> String {
-        match &self.organization {
-            Some(organization) => format!("{} ({organization})", self.email),
-            None => self.email.clone(),
-        }
-    }
-}
+pub use crate::setup_claude::ClaudeAccount;
 
 /// What setup does to the machine, beyond asking.
 pub trait Doing {
@@ -126,8 +109,9 @@ pub trait Doing {
     /// connected under `profile`.
     fn connect_agent(&mut self, tool: &str, profile: &str, agent: &str) -> Result<()>;
     fn add_server(&mut self, name: &str, command: &[String], env: BTreeMap<String, String>, acts_as: ActsAs) -> Result<()>;
+    /// Adds the waiter, or replaces the one of that name, keeping whoever it
+    /// already trusted.
     fn add_waiter(&mut self, name: &str, waiter: Waiter) -> Result<()>;
-    fn trust(&mut self, address: &str, name: &str) -> Result<()>;
 }
 
 /// Whose name a server's tools act in. One that acts as the chef is only
@@ -138,12 +122,14 @@ pub enum ActsAs {
     Chef,
 }
 
-/// What a waiter reports its senders as, which is what `people` has to be
-/// keyed by.
+/// What a waiter reports its senders as, which is what its trusted people
+/// have to be keyed by.
 #[derive(Clone, Copy)]
 pub enum RecognizedBy {
-    Address,
+    /// Their id, looked up by their email address.
     PersonId,
+    /// Their username, as GitHub reports who wrote a comment.
+    Login,
 }
 
 pub enum GoOn {
@@ -159,7 +145,7 @@ pub struct Wizard<'a> {
 }
 
 impl Wizard<'_> {
-    fn walk_through(&mut self) -> Result<()> {
+    pub fn walk_through(&mut self) -> Result<()> {
         let mut config = self.doing.load_config()?;
         self.asking.banner("SOUS-CHEF", "Yes, chef!")?;
         self.asking.note("\nEvery question is optional. Enter keeps what's already there.")?;
@@ -207,45 +193,6 @@ impl Wizard<'_> {
             config.name = name;
         }
         self.asking.done(&format!("Your agent is called {}.", config.name))
-    }
-
-    /// Her own Claude login, without which she can't do anything. The chef's
-    /// own account is offered first, by name, so they know what they agree
-    /// to. It is never copied: she logs in to it herself, in her own folder,
-    /// because a login two folders share is refreshed out from under one of
-    /// them by the other.
-    fn claude(&mut self, agent: &str) -> Result<()> {
-        if let Some(address) = self.doing.claude_login() {
-            return self.asking.done(&format!("{agent} works in Claude as {address}."));
-        }
-
-        if let Some(yours) = self.doing.chefs_claude_login() {
-            let question = format!("Should {agent} use your Claude account, {}?", yours.described());
-            let hint = format!("Claude opens in the browser with that account filled in; approve it there. {agent} gets a login of its own to the account, so neither of you logs the other out.");
-            if self.asking.yes(&Question { title: "Claude", question: &question, hint: &hint }, true)? {
-                return self.log_in_to_claude(agent, Some(&yours.email));
-            }
-        }
-
-        let question = format!("{agent} needs a Claude account to work. Do you want to log it in now?");
-        let hint = "Claude opens in the browser; log in with the account it should use.";
-        if self.asking.yes(&Question { title: "Claude", question: &question, hint }, true)? {
-            self.log_in_to_claude(agent, None)
-        } else {
-            self.asking.trouble(&format!("{agent} can't work without a Claude account. Add one whenever you like with `sous-chef claude login` and `sous-chef claude account add`."))
-        }
-    }
-
-    fn log_in_to_claude(&mut self, agent: &str, email: Option<&str>) -> Result<()> {
-        self.asking.note("\n  Claude Code takes it from here: approve the login in the browser and come back.\n")?;
-        let address = match self.doing.log_in_to_claude(email) {
-            Ok(address) => address,
-            Err(error) => return self.asking.trouble(&format!("Couldn't log in: {error:#}. {agent} can't work without it; `sous-chef claude login` and `sous-chef claude account add` try again.")),
-        };
-        match self.doing.keep_claude_login() {
-            Ok(()) => self.asking.done(&format!("{agent} works in Claude as {address}.")),
-            Err(error) => self.asking.trouble(&format!("{agent} works in Claude as {address}, but it couldn't be added to the rotation: {error:#}. `sous-chef claude account add` tries again.")),
-        }
     }
 
     fn about(&mut self, agent: &str) -> Result<()> {
@@ -313,46 +260,6 @@ impl Wizard<'_> {
         self.asking.done("No key changed.")
     }
 
-    /// A GitHub account of her own, so what she pushes and opens is hers
-    /// and not the chef's. The login is gh's to do; setup then writes the
-    /// identity her commits carry, which needs the account's email.
-    fn github(&mut self, agent: &str) -> Result<()> {
-        let already = self.doing.github_login();
-        let question = format!("Do you want {agent} to have a GitHub login of its own?");
-        let hint = format!("{agent} then pushes and opens pull requests as that account instead of as you. Make the account first, and give it access to the repositories {agent} works in.");
-        if !self.asking.yes(&Question { title: "GitHub", question: &question, hint: &hint }, already.is_some())? {
-            return self.asking.done(&format!("{agent} pushes nothing on its own; when you tell it to use your login, it does."));
-        }
-
-        let login = match already {
-            Some(login) => {
-                self.asking.done(&format!("Already logged in as {login}."))?;
-                login
-            }
-            None => {
-                self.asking.note("\n  gh takes it from here: approve the login in the browser and come back.\n")?;
-                match self.doing.log_in_to_github() {
-                    Ok(login) => login,
-                    Err(error) => return self.asking.trouble(&format!("Couldn't log in: {error:#}. Nothing was changed; run setup again to retry.")),
-                }
-            }
-        };
-
-        let current = self.doing.git_email();
-        let email_question = Question {
-            title: "GitHub email",
-            question: "Which email address does that account use?",
-            hint: "GitHub credits commits to the account by it.",
-        };
-        match self.asking.string(&email_question, current.as_deref())?.or(current) {
-            Some(email) => {
-                self.doing.set_git_identity(agent, &email)?;
-                self.asking.done(&format!("{agent} pushes and opens pull requests as {login}, with commits by {email}."))
-            }
-            None => self.asking.trouble(&format!("Without an email, {agent}'s commits are credited to nobody. Run setup again, or `sous-chef github login --email <address>`.")),
-        }
-    }
-
     fn closing_notes(&mut self, agent: &str) -> Result<()> {
         self.asking.banner("Done", &format!("{agent} is set up."))?;
         self.asking.note(&format!(
@@ -390,6 +297,15 @@ pub fn prose_of(tool: &str) -> BTreeMap<String, Vec<String>> {
             ("basecamp_cards".to_string(), words(&["/params/content", "/params/title"])),
         ]),
         "hey" => BTreeMap::from([("hey_threads".to_string(), words(&["/params/body", "/params/subject"]))]),
+        "github" => BTreeMap::from([
+            ("add_issue_comment".to_string(), words(&["/body"])),
+            ("add_reply_to_pull_request_comment".to_string(), words(&["/body"])),
+            ("add_comment_to_pending_review".to_string(), words(&["/body"])),
+            ("pull_request_review_write".to_string(), words(&["/body"])),
+            ("issue_write".to_string(), words(&["/body", "/title"])),
+            ("create_pull_request".to_string(), words(&["/body", "/title"])),
+            ("update_pull_request".to_string(), words(&["/body", "/title"])),
+        ]),
         _ => BTreeMap::new(),
     }
 }
@@ -427,248 +343,8 @@ pub fn words(parts: &[&str]) -> Vec<String> {
 mod tests {
     use super::*;
     use crate::config::Cursor;
+    use crate::setup_rehearsal::{Pretend, Scripted, walk};
     use serde_json::json;
-    use std::collections::VecDeque;
-
-    /// Answers in the order the questions come, and a record of what was
-    /// asked and said.
-    #[derive(Default)]
-    struct Scripted {
-        answers: VecDeque<&'static str>,
-        asked: Vec<String>,
-        said: Vec<String>,
-    }
-
-    impl Scripted {
-        fn answering(answers: &[&'static str]) -> Scripted {
-            Scripted { answers: answers.iter().copied().collect(), ..Scripted::default() }
-        }
-
-        fn next(&mut self, question: &Question) -> String {
-            self.asked.push(format!("{}: {}", question.title, question.question));
-            self.answers.pop_front().unwrap_or_default().to_string()
-        }
-
-        fn optional(&mut self, question: &Question) -> Option<String> {
-            Some(self.next(question)).filter(|it| !it.is_empty())
-        }
-    }
-
-    impl Asking for Scripted {
-        fn banner(&mut self, _title: &str, _subtitle: &str) -> Result<()> {
-            Ok(())
-        }
-
-        fn string(&mut self, question: &Question, _current: Option<&str>) -> Result<Option<String>> {
-            Ok(self.optional(question))
-        }
-
-        fn text(&mut self, question: &Question, _current: Option<&str>) -> Result<Option<String>> {
-            Ok(self.optional(question))
-        }
-
-        fn secret(&mut self, question: &Question) -> Result<Option<String>> {
-            Ok(self.optional(question))
-        }
-
-        fn yes(&mut self, question: &Question, default: bool) -> Result<bool> {
-            Ok(match self.next(question).as_str() {
-                "" => default,
-                answer => answer == "y",
-            })
-        }
-
-        fn choice(&mut self, question: &Question, _options: &[String]) -> Result<usize> {
-            Ok(self.next(question).parse::<usize>().unwrap() - 1)
-        }
-
-        fn done(&mut self, text: &str) -> Result<()> {
-            self.said.push(text.to_string());
-            Ok(())
-        }
-
-        fn trouble(&mut self, text: &str) -> Result<()> {
-            self.said.push(format!("TROUBLE {text}"));
-            Ok(())
-        }
-
-        fn note(&mut self, text: &str) -> Result<()> {
-            self.said.push(text.to_string());
-            Ok(())
-        }
-    }
-
-    #[derive(Default)]
-    struct Pretend {
-        installed: Vec<&'static str>,
-        config: Option<Config>,
-        kept: Vec<(String, String)>,
-        service: Option<String>,
-        too_old_for_checks: usize,
-        connected: Vec<String>,
-        servers: Vec<(String, Vec<String>)>,
-        server_env: Vec<BTreeMap<String, String>>,
-        acts_as: Vec<ActsAs>,
-        trusted: Vec<(String, String)>,
-        waiters: Vec<(String, Waiter)>,
-        profiles: Vec<&'static str>,
-        /// She has no Claude login of her own yet; otherwise she has one
-        /// and setup asks nothing about it
-        new_to_claude: bool,
-        claude_login: Option<String>,
-        chefs_claude_login: Option<ClaudeAccount>,
-        logged_in_with: Vec<Option<String>>,
-        rotation: Vec<String>,
-        github_login: Option<String>,
-        git_identity: Option<(String, String)>,
-    }
-
-    impl Doing for Pretend {
-        fn load_config(&mut self) -> Result<Config> {
-            Ok(Config::default())
-        }
-
-        fn save_config(&mut self, config: &Config) -> Result<()> {
-            self.config = Some(Config { name: config.name.clone(), ..Config::default() });
-            Ok(())
-        }
-
-        fn missing_programs(&mut self) -> Vec<&'static str> {
-            Vec::new()
-        }
-
-        fn has_program(&mut self, program: &str) -> bool {
-            self.installed.contains(&program)
-        }
-
-        fn has_secret(&mut self, _name: &str) -> bool {
-            false
-        }
-
-        fn jev_key_works(&mut self, key: &str) -> bool {
-            key == "good-key"
-        }
-
-        fn keep_secret(&mut self, name: &str, value: &str) -> Result<Kept> {
-            self.kept.push((name.to_string(), value.to_string()));
-            Ok(Kept::InKeyring)
-        }
-
-        fn install_service(&mut self, agent: &str) -> Result<()> {
-            self.service = Some(agent.to_string());
-            Ok(())
-        }
-
-        fn claude_login(&mut self) -> Option<String> {
-            if self.new_to_claude {
-                self.claude_login.clone()
-            } else {
-                Some("botten@example.com".to_string())
-            }
-        }
-
-        fn chefs_claude_login(&mut self) -> Option<ClaudeAccount> {
-            self.chefs_claude_login.clone()
-        }
-
-        fn log_in_to_claude(&mut self, email: Option<&str>) -> Result<String> {
-            self.logged_in_with.push(email.map(str::to_string));
-            let address = email.unwrap_or("botten@example.com").to_string();
-            self.claude_login = Some(address.clone());
-            Ok(address)
-        }
-
-        fn keep_claude_login(&mut self) -> Result<()> {
-            self.rotation.extend(self.claude_login.clone());
-            Ok(())
-        }
-
-        fn github_login(&mut self) -> Option<String> {
-            self.github_login.clone()
-        }
-
-        fn git_email(&mut self) -> Option<String> {
-            self.git_identity.as_ref().map(|(_, email)| email.clone())
-        }
-
-        fn log_in_to_github(&mut self) -> Result<String> {
-            self.github_login = Some("botten-agent".to_string());
-            Ok("botten-agent".to_string())
-        }
-
-        fn set_git_identity(&mut self, name: &str, email: &str) -> Result<()> {
-            self.git_identity = Some((name.to_string(), email.to_string()));
-            Ok(())
-        }
-
-        fn logged_in_as(&mut self, tool: &str) -> Vec<String> {
-            vec![format!("me@{tool}.example.com")]
-        }
-
-        fn profiles(&mut self, _tool: &str) -> Vec<Profile> {
-            self.profiles.iter().map(|it| Profile { name: it.to_string() }).collect()
-        }
-
-        fn identity_of(&mut self, tool: &str, profile: Option<&str>) -> Option<String> {
-            match profile {
-                Some("bot") => Some("bot@basecamp.example.com".to_string()),
-                _ => Some(format!("me@{tool}.example.com")),
-            }
-        }
-
-        fn person_ids(&mut self, _tool: &str, address: &str) -> Vec<String> {
-            match address {
-                "me@basecamp.example.com" => vec!["1001".to_string()],
-                "marta.k@example.com" => vec!["1002".to_string(), "2002".to_string()],
-                _ => Vec::new(),
-            }
-        }
-
-        fn accounts(&mut self, _tool: &str, _profile: Option<&str>) -> Result<Vec<Account>> {
-            Ok(vec![
-                Account { id: "111".to_string(), name: "Work".to_string() },
-                Account { id: "222".to_string(), name: "Personal".to_string() },
-            ])
-        }
-
-        fn can_connect_agents(&mut self, _tool: &str) -> bool {
-            if self.too_old_for_checks == 0 {
-                true
-            } else {
-                self.too_old_for_checks -= 1;
-                false
-            }
-        }
-
-        fn connect_agent(&mut self, tool: &str, profile: &str, agent: &str) -> Result<()> {
-            self.connected.push(format!("{tool} {profile} {agent}"));
-            Ok(())
-        }
-
-        fn add_server(&mut self, name: &str, command: &[String], env: BTreeMap<String, String>, acts_as: ActsAs) -> Result<()> {
-            self.servers.push((name.to_string(), command.to_vec()));
-            self.server_env.push(env);
-            self.acts_as.push(acts_as);
-            Ok(())
-        }
-
-        fn add_waiter(&mut self, name: &str, waiter: Waiter) -> Result<()> {
-            self.waiters.push((name.to_string(), waiter));
-            Ok(())
-        }
-
-        fn trust(&mut self, address: &str, name: &str) -> Result<()> {
-            self.trusted.push((address.to_string(), name.to_string()));
-            Ok(())
-        }
-    }
-
-    fn walk(asking: &mut Scripted, doing: &mut Pretend, name: &str) -> PathBuf {
-        let config_dir = std::env::temp_dir().join(format!("sous-chef-setup-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&config_dir);
-        Wizard { asking, doing, config_dir: config_dir.clone() }.walk_through().unwrap();
-        config_dir
-    }
 
     #[test]
     fn an_agent_of_her_own_listens_and_a_tool_used_as_you_does_not() {
@@ -704,12 +380,12 @@ mod tests {
         let (name, waiter) = &doing.waiters[0];
         assert_eq!(name, "basecamp");
         assert_eq!(
-            doing.trusted,
+            doing.trusted(),
             [("1001".to_string(), "Me".to_string()), ("1002".to_string(), "Marta K".to_string()), ("2002".to_string(), "Marta K".to_string())],
             "an agent's inbox reports people by id, so that is what they are trusted as — in every account they are in"
         );
         assert_eq!(waiter.watch.arguments, json!({ "action": "poll_inbox", "params": {} }), "an agent has an inbox, not notifications");
-        assert_eq!(waiter.sender, "/event/creator_id");
+        assert_eq!(waiter.sender.as_deref(), Some("/event/creator_id"));
         assert_eq!(waiter.cursor, Some(Cursor { from: "/position".to_string(), into: "/params/position".to_string() }));
         assert!(waiter.note.as_ref().unwrap().contains("Read the recording"));
         assert!(!waiter.anyone, "nobody but the trusted people is heard");
@@ -728,77 +404,12 @@ mod tests {
     }
 
     #[test]
-    fn the_chefs_own_claude_account_is_offered_by_name_and_logged_in_to_afresh() {
-        let mut asking = Scripted::answering(&[
-            "Botten",                // Name
-            "y",                     // use your Claude account
-            "", "", "n", "n",        // about, style, no service, no Jev
-        ]);
-        let chefs = ClaudeAccount { email: "marta@example.com".to_string(), organization: Some("Shop".to_string()) };
-        let mut doing = Pretend { new_to_claude: true, chefs_claude_login: Some(chefs), ..Pretend::default() };
-        walk(&mut asking, &mut doing, "claude-chefs");
+    fn with_nobody_offered_setup_asks_who_to_trust_not_who_else() {
+        let mut asking = Scripted::answering(&["Botten", "", "", "n", "n", "y", "botten@example.com", "y", "", "n"]);
+        let mut doing = Pretend { installed: vec!["gh", "github-mcp-server"], nobody_logged_in: true, ..Pretend::default() };
+        walk(&mut asking, &mut doing, "trust-nobody-offered");
 
-        assert!(asking.asked.iter().any(|it| it == "Claude: Should Botten use your Claude account, marta@example.com (Shop)?"), "{:?}", asking.asked);
-        assert_eq!(doing.logged_in_with, [Some("marta@example.com".to_string())], "she logs in to that account herself, never copies the chef's login");
-        assert_eq!(doing.rotation, ["marta@example.com"]);
-        assert!(asking.said.iter().any(|it| it == "Botten works in Claude as marta@example.com."));
-
-        let mut again = Scripted::answering(&["Botten", "", "", "n", "n"]);
-        walk(&mut again, &mut doing, "claude-chefs-again");
-        assert_eq!(doing.logged_in_with.len(), 1, "a login already there is kept, and nothing is asked");
-        assert!(!again.asked.iter().any(|it| it.starts_with("Claude:")));
-    }
-
-    #[test]
-    fn turning_down_the_chefs_claude_account_offers_a_login_of_any_account() {
-        let mut asking = Scripted::answering(&["Botten", "n", "y", "", "", "n", "n"]);
-        let chefs = ClaudeAccount { email: "marta@example.com".to_string(), organization: None };
-        let mut doing = Pretend { new_to_claude: true, chefs_claude_login: Some(chefs), ..Pretend::default() };
-        walk(&mut asking, &mut doing, "claude-another");
-
-        assert!(asking.asked.iter().any(|it| it == "Claude: Should Botten use your Claude account, marta@example.com?"));
-        assert!(asking.asked.iter().any(|it| it == "Claude: Botten needs a Claude account to work. Do you want to log it in now?"));
-        assert_eq!(doing.logged_in_with, [None], "whichever account the chef logs in with");
-        assert_eq!(doing.rotation, ["botten@example.com"]);
-    }
-
-    #[test]
-    fn without_a_claude_account_setup_says_how_to_add_one_later() {
-        let mut asking = Scripted::answering(&["Botten", "n", "", "", "n", "n"]);
-        let mut doing = Pretend { new_to_claude: true, ..Pretend::default() };
-        walk(&mut asking, &mut doing, "claude-none");
-
-        assert!(!asking.asked.iter().any(|it| it.contains("your Claude account")), "nobody is logged in to offer");
-        assert!(doing.logged_in_with.is_empty());
-        assert!(doing.rotation.is_empty());
-        assert!(
-            asking.said.iter().any(|it| it.starts_with("TROUBLE") && it.contains("`sous-chef claude login` and `sous-chef claude account add`")),
-            "{:?}",
-            asking.said
-        );
-    }
-
-    #[test]
-    fn a_github_login_of_her_own_is_made_at_setup_and_kept_after() {
-        let mut asking = Scripted::answering(&[
-            "Botten", "", "", "n", "n",   // name, about, style, no service, no Jev
-            "y", "botten@example.com",    // GitHub, and the account's email
-        ]);
-        let mut doing = Pretend { installed: vec!["gh"], ..Pretend::default() };
-        walk(&mut asking, &mut doing, "github");
-        assert_eq!(doing.github_login.as_deref(), Some("botten-agent"));
-        assert_eq!(doing.git_identity, Some(("Botten".to_string(), "botten@example.com".to_string())));
-        assert!(asking.said.iter().any(|it| it.contains("as botten-agent, with commits by botten@example.com")), "{:?}", asking.said);
-
-        let mut again = Scripted::answering(&["Botten", "", "", "n", "n", "", ""]);
-        walk(&mut again, &mut doing, "github-again");
-        assert_eq!(doing.git_identity, Some(("Botten".to_string(), "botten@example.com".to_string())), "enter keeps the login and the email");
-        assert!(again.said.iter().any(|it| it.contains("Already logged in as botten-agent")));
-
-        let mut without_gh = Scripted::answering(&["Botten", "", "", "n", "n"]);
-        let mut nothing = Pretend::default();
-        walk(&mut without_gh, &mut nothing, "github-without");
-        assert!(!without_gh.asked.iter().any(|it| it.contains("GitHub")), "no gh, no question");
+        assert!(asking.asked.iter().any(|it| it == "Trusted person: Who should Botten trust in GitHub? Their username."), "{:?}", asking.asked);
     }
 
     #[test]
@@ -827,7 +438,7 @@ mod tests {
         assert!(doing.waiters.is_empty());
         assert!(doing.connected.is_empty());
         assert!(!asking.asked.iter().any(|it| it.starts_with("Profile:") || it.starts_with("Listen:")), "one profile, and it is the chef's: nothing to pick, nothing to listen as");
-        assert_eq!(doing.trusted, [("me@basecamp.example.com".to_string(), "Me".to_string())], "enter trusts whoever runs setup");
+        assert!(!asking.asked.iter().any(|it| it.starts_with("Trusted person:")), "she listens nowhere as you, so there is nowhere to trust anyone");
         let _ = std::fs::remove_dir_all(config_dir);
     }
 
@@ -844,10 +455,10 @@ mod tests {
         assert_eq!(doing.acts_as, [ActsAs::Agent], "her own user acts as her");
         let (_, waiter) = &doing.waiters[0];
         assert_eq!(waiter.watch.tool, "basecamp_account", "a user hears through notifications, the way a person does");
-        assert_eq!(waiter.sender, "/creator/id", "a user that isn't an admin sees addresses redacted");
+        assert_eq!(waiter.sender.as_deref(), Some("/creator/id"), "a user that isn't an admin sees addresses redacted");
         assert_eq!((waiter.trigger.as_ref(), waiter.every_seconds), (None, 15), "notifications are asked as often as an agent's inbox");
         assert!(!waiter.anyone);
-        assert_eq!(doing.trusted, [("1001".to_string(), "Me".to_string())], "so the trusted person is known by id");
+        assert_eq!(doing.trusted(), [("1001".to_string(), "Me".to_string())], "so the trusted person is known by id");
         let _ = std::fs::remove_dir_all(config_dir);
 
         // The same, but the chef's own profile picked: no listening offered
@@ -867,7 +478,7 @@ mod tests {
         let mut doing = Pretend { installed: vec!["basecamp"], ..Pretend::default() };
         let config_dir = walk(&mut asking, &mut doing, "anyone");
 
-        assert_eq!(doing.trusted.len(), 1);
+        assert_eq!(doing.trusted().len(), 1);
         assert!(doing.waiters[0].1.anyone, "enter says yes: anyone may assign work");
         assert!(asking.asked.iter().any(|it| it == "Work from anyone: Should anyone in Basecamp be able to assign Anna work?"));
         assert!(asking.said.iter().any(|it| it.contains("only the people you named can direct it")));
@@ -880,7 +491,7 @@ mod tests {
         let mut doing = Pretend { installed: vec!["basecamp"], ..Pretend::default() };
         let config_dir = walk(&mut asking, &mut doing, "nobody");
 
-        assert!(doing.trusted.is_empty());
+        assert!(doing.trusted().is_empty());
         assert!(!doing.waiters[0].1.anyone);
         assert!(asking.said.iter().any(|it| it.starts_with("TROUBLE Nobody is trusted and nobody else may assign work")));
         let _ = std::fs::remove_dir_all(config_dir);
@@ -892,7 +503,7 @@ mod tests {
         let mut doing = Pretend { installed: vec!["basecamp"], ..Pretend::default() };
         let config_dir = walk(&mut asking, &mut doing, "ghost");
 
-        assert!(doing.trusted.is_empty());
+        assert!(doing.trusted().is_empty());
         assert!(asking.said.iter().any(|it| it.starts_with("TROUBLE Couldn't find ghost@example.com in Basecamp")));
         assert!(!asking.asked.iter().any(|it| it.starts_with("Their name")), "nobody is named who couldn't be found");
         let _ = std::fs::remove_dir_all(config_dir);

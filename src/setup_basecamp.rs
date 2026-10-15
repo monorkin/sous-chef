@@ -2,8 +2,9 @@
 //! agent of the chef's own, or as one of their users.
 
 use serde_json::json;
+use std::collections::BTreeMap;
 
-use crate::config::{Call, Cursor, Latest, Pointers, Waiter};
+use crate::config::{Call, Cursor, Latest, Listing, Pointers, Waiter};
 use crate::setup::words;
 
 /// Basecamp pushes nothing an agent or a user's command line can listen
@@ -63,11 +64,13 @@ pub fn agent_waiter(anyone: bool) -> Waiter {
         // subscribed — and is one message, not two
         id: Pointers::One("/event/id".to_string()),
         conversation: "/event/recording_id".to_string(),
-        sender: "/event/creator_id".to_string(),
+        sender: Some("/event/creator_id".to_string()),
         sender_name: None,
         anyone,
+        trusted: BTreeMap::new(),
         text: Pointers::Several(words(&["/reason", "/event/kind", "/event/bucket_id", "/event/recording_id", "/event/details"])),
         reply: None,
+        handled: None,
         cursor: Some(Cursor { from: "/position".to_string(), into: "/params/position".to_string() }),
         note: Some(INBOX_NOTE.to_string()),
         latest: None,
@@ -94,24 +97,32 @@ pub fn notifications_waiter(anyone: bool) -> Waiter {
         items: "/unreads".to_string(),
         id: Pointers::Several(words(&["/id", "/unread_at"])),
         conversation: "/subscription_url".to_string(),
-        sender: "/creator/id".to_string(),
+        sender: Some("/creator/id".to_string()),
         sender_name: Some("/creator/name".to_string()),
         anyone,
+        trusted: BTreeMap::new(),
         text: Pointers::Several(words(&["/title", "/content_excerpt", "/app_url"])),
         reply: None,
+        handled: None,
         cursor: None,
         note: Some(NOTIFICATIONS_NOTE.to_string()),
         // The unread item names whoever first put the recording on her
         // desk; the comments say who spoke last
         latest: Some(Latest {
-            call: Call {
-                tool: "basecamp_messages".to_string(),
-                arguments: json!({ "action": "list_comments", "params": { "recordingId": "{recording}", "page": "{page}" } }),
+            listing: Listing {
+                call: Call {
+                    tool: "basecamp_messages".to_string(),
+                    arguments: json!({ "action": "list_comments", "params": { "recordingId": "{recording}", "page": "{page}" } }),
+                },
+                items: Pointers::Several(words(&["", "/results"])),
+                sender: "/creator/id".to_string(),
+                sender_name: Some("/creator/name".to_string()),
+                text: "/content".to_string(),
+                at: None,
+                when: None,
             },
-            items: Pointers::Several(words(&["", "/results"])),
-            sender: "/creator/id".to_string(),
-            sender_name: Some("/creator/name".to_string()),
-            text: "/content".to_string(),
+            also: Vec::new(),
+            opening: None,
         }),
         trigger: None,
     }
