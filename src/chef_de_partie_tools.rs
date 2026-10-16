@@ -142,7 +142,7 @@ fn station_property(stations: &BTreeMap<String, Station>) -> Option<Value> {
         "type": "string",
         "enum": stations.keys().collect::<Vec<_>>(),
         "description": format!(
-            "Another machine for the commis to work on, when the work is heavy or needs what only that machine has: {}. Leave it out to work here. At a station the project goes by git, so commit what the commis needs first; services are that station's own ports; and what it commits comes back on top of the project when it's done.",
+            "Another machine for the commis to work on, when the work is heavy or needs what only that machine has: {}. Leave it out to work here. At a station the project goes by git, so commit what the commis needs first, and fetch first when it needs the remote's branches — they go along as last fetched here; services are that station's own ports; and what it commits comes back on top of the project when it's done.",
             described.join("; ")
         ),
     }))

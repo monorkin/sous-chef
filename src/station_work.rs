@@ -52,8 +52,15 @@ impl AtStation {
         let there = format!("{PROJECTS}/{}", self.project);
         asked(&self.host, &format!("[ -d {there}/.git ] || git init -q {there}"))?;
         let mut push = self.git(project);
-        push.args(["push", "-q", "--force", &self.url(), &format!("HEAD:refs/sous-chef/in/{}", self.branch)]);
+        push.args(["push", "-q", "--force", &self.url()]).args(self.refspecs());
         done(&mut push, "pushing the work to the station")
+    }
+
+    /// The commis's branch, and the remotes as last fetched here: the
+    /// station has no remote of its own to fetch from, and merging or
+    /// porting against origin/main needs it there all the same.
+    fn refspecs(&self) -> [String; 2] {
+        [format!("HEAD:refs/sous-chef/in/{}", self.branch), "+refs/remotes/*:refs/remotes/*".to_string()]
     }
 
     /// What the commis committed there, laid on top of the worktree here.
@@ -231,5 +238,26 @@ mod tests {
         assert_eq!(at("someone@station").url(), "someone@station:.local/share/sous-chef/station/projects/shop-1");
         assert_eq!(at("ssh://someone@station:2222").url(), "ssh://someone@station:2222/~/.local/share/sous-chef/station/projects/shop-1");
         assert!(ssh_for_git().contains("'BatchMode=yes'"));
+    }
+
+    #[test]
+    fn a_commis_at_a_station_sees_the_remotes_as_they_were_last_fetched_here() {
+        let scratch = std::env::temp_dir().join(format!("sous-chef-refs-{}", std::process::id()));
+        let (here, there) = (scratch.join("here"), scratch.join("there"));
+        for repository in [&here, &there] {
+            assert!(Command::new("git").args(["init", "-q"]).arg(repository).status().unwrap().success());
+        }
+        let git = |arguments: &[&str]| assert!(Command::new("git").arg("-C").arg(&here).args(arguments).status().unwrap().success());
+        git(&["-c", "user.name=Marta", "-c", "user.email=marta@example.com", "commit", "-q", "--allow-empty", "-m", "Start"]);
+        git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+
+        let at = AtStation { name: "s".to_string(), host: "unused".to_string(), project: "shop-1".to_string(), branch: "sous-chef/h1".to_string() };
+        git(&[&["push", "-q", "--force", there.to_str().unwrap()][..], &at.refspecs().each_ref().map(String::as_str)[..]].concat());
+
+        let refs = Command::new("git").arg("-C").arg(&there).arg("show-ref").output().unwrap();
+        let refs = String::from_utf8_lossy(&refs.stdout);
+        assert!(refs.contains("refs/sous-chef/in/sous-chef/h1"), "{refs}");
+        assert!(refs.contains("refs/remotes/origin/main"), "{refs}");
+        std::fs::remove_dir_all(scratch).unwrap();
     }
 }
