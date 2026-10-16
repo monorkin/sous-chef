@@ -207,4 +207,5 @@ glibc too old to run a current rustc's build scripts.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+`sous-chef` is licensed as MIT. It comes with no warranty of any kind and you
+are free to change and distribute it - see [LICENSE](LICENSE) for details.
