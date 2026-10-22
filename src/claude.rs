@@ -167,6 +167,9 @@ pub fn reply_of(command: &mut Command, told: &str, limit: Duration, started: Opt
     if reply.is_error && says_the_subscription_is_used_up(&reply.result) {
         return Err(OutOfQuota { said: reply.result }.into());
     }
+    if reply.is_error && says_the_login_is_dead(&reply.result) {
+        return Err(LoggedOut { said: reply.result }.into());
+    }
     if reply.is_error {
         bail!("claude reported an error: {}", reply.result);
     }
@@ -216,12 +219,34 @@ pub fn says_the_session_is_gone(error: &anyhow::Error) -> bool {
 
 /// Claude Code refreshes her login now and then, and the token a session
 /// held until then is refused from that moment: "401 OAuth access token has
-/// been revoked". A commis's copy has no refresh token either, so one that
-/// outlives its access token is told "has expired". Either way the session
-/// itself is whole and goes on with her current one.
+/// been revoked", or as often "OAuth token revoked". A commis's copy has no
+/// refresh token either, so one that outlives its access token is told "has
+/// expired". Either way the session itself is whole and goes on with her
+/// current one.
 pub fn says_the_login_went_stale(error: &anyhow::Error) -> bool {
     let error = format!("{error:#}");
-    error.contains("access token has been revoked") || error.contains("access token has expired")
+    ["token has been revoked", "token revoked", "access token has expired"].iter().any(|it| error.contains(it))
+}
+
+/// Her own login, not a copy of it, is past saving: its refresh token
+/// expired or was revoked, and no run on it will work until someone logs
+/// that account in again. Another account of hers still can.
+#[derive(Debug)]
+pub struct LoggedOut {
+    pub said: String,
+}
+
+impl std::fmt::Display for LoggedOut {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "the Claude login can't be refreshed and needs logging in again: {}", self.said)
+    }
+}
+
+impl std::error::Error for LoggedOut {}
+
+/// "Failed to authenticate: OAuth session expired and could not be refreshed".
+pub fn says_the_login_is_dead(said: &str) -> bool {
+    said.contains("could not be refreshed")
 }
 
 /// What a commis's or a pass's session is told when it goes on in the
@@ -596,10 +621,23 @@ mod tests {
     fn a_revoked_or_expired_login_is_told_apart_from_other_failures() {
         assert!(says_the_login_went_stale(&anyhow::anyhow!("claude reported an error: Failed to authenticate. API Error: 401 OAuth access token has been revoked.")));
         assert!(says_the_login_went_stale(&anyhow::anyhow!("claude reported an error: Failed to authenticate. API Error: 401 OAuth access token has expired. Re-authenticate to continue.")));
+        assert!(says_the_login_went_stale(&anyhow::anyhow!("claude reported an error: Failed to authenticate. API Error: 401 OAuth token revoked")));
+        assert!(says_the_login_went_stale(&anyhow::anyhow!("claude reported an error: Failed to authenticate. API Error: 401 OAuth token has been revoked")));
         assert!(!says_the_login_went_stale(&anyhow::anyhow!("claude exited with signal: 9 (SIGKILL)")));
         let id = random_session_id().unwrap();
         assert_eq!(id.len(), 36);
         assert_eq!(&id[14..15], "4");
+    }
+
+    #[test]
+    fn a_login_that_cannot_be_refreshed_is_told_apart_from_a_stale_copy() {
+        let dead = "Failed to authenticate: OAuth session expired and could not be refreshed";
+        assert!(says_the_login_is_dead(dead));
+        assert!(!says_the_login_went_stale(&anyhow::anyhow!("claude reported an error: {dead}")), "copying her login again would copy the dead one");
+        assert!(!says_the_login_is_dead("Failed to authenticate. API Error: 401 OAuth token revoked"));
+
+        let error = anyhow::Error::new(LoggedOut { said: dead.to_string() });
+        assert!(error.context("the chef de partie could not finish its turn").downcast_ref::<LoggedOut>().is_some());
     }
 
     #[test]

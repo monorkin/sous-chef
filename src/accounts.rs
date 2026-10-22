@@ -55,8 +55,9 @@ pub fn rotate(runtime: &Arc<Runtime>) {
 /// her to the stored account with the most room, when one has any and she
 /// rotates at all. Runs hit the limit together: one switch answers all of
 /// them for a while, or the next would switch back to the spent account on
-/// its stale reading.
-pub fn moved_off_the_spent_account() -> bool {
+/// its stale reading. A login that can't be refreshed any more is moved off
+/// the same way: until someone logs it in again, it is as good as spent.
+pub fn moved_off_the_current_account() -> bool {
     static LAST_SWITCH: Mutex<Option<Instant>> = Mutex::new(None);
     if !ROTATING.load(Ordering::Relaxed) {
         return false;
@@ -77,7 +78,7 @@ pub fn moved_off_the_spent_account() -> bool {
         .min_by(|(_, one), (_, other)| one.total_cmp(other));
     match roomiest {
         Some((report, used)) if ax::account::switch(&report.account.email).is_ok() => {
-            logs::event("accounts.switched_at_the_limit", json!({ "to": report.account.email, "used": used }));
+            logs::event("accounts.moved_off", json!({ "to": report.account.email, "used": used }));
             *last = Some(Instant::now());
             true
         }

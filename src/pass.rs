@@ -89,7 +89,7 @@ pub fn check(commis: &Commis, brief: &str, report: &str, outside: &Outside, star
         };
         let refresh = |spent: bool| {
             if spent {
-                accounts::moved_off_the_spent_account();
+                accounts::moved_off_the_current_account();
             }
             logs::event("pass.login_refreshed", json!({ "commis": commis_id, "spent": spent }));
             claude::refresh_commis_login(&directory.join("profile"))

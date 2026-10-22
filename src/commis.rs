@@ -184,7 +184,7 @@ impl Commis {
         // login and what it had done.
         let refresh = |spent: bool| {
             if spent {
-                accounts::moved_off_the_spent_account();
+                accounts::moved_off_the_current_account();
             }
             logs::event("commis.login_refreshed", json!({ "commis": id, "spent": spent }));
             claude::refresh_commis_login(&profile)

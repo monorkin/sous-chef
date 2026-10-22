@@ -21,7 +21,7 @@ use std::time::Duration;
 
 use crate::at_work;
 use crate::chef_de_partie;
-use crate::claude::{self, OutOfQuota};
+use crate::claude::{self, LoggedOut, OutOfQuota};
 use crate::clock;
 use crate::config::Waiter;
 use crate::control::{self, Controls};
@@ -558,9 +558,11 @@ fn as_picked_up(left: &[PendingTurn]) -> Vec<String> {
 /// A subscription that is used up is a wait, not a failure: what she was
 /// asked stays asked, at the head of its conversation, and is tried again
 /// until the allowance is back — or another account has been switched to in
-/// the meantime. Only after most of a day is it given up as broken.
+/// the meantime. Only after most of a day is it given up as broken. A login
+/// that can't be refreshed is tried once more, on another account.
 fn wake_once_there_is_quota(runtime: &Arc<Runtime>, conversation: &Arc<dyn Conversation>, standing: Standing, said: &str) -> Result<Option<String>> {
     let mut waits = 0;
+    let mut moved_off_a_dead_login = false;
     loop {
         // Only said when the limit was really hit: the limit's own message is
         // in her history as if she had said it, and she read it as a tool's
@@ -573,9 +575,13 @@ fn wake_once_there_is_quota(runtime: &Arc<Runtime>, conversation: &Arc<dyn Conve
             Err(error) if error.downcast_ref::<OutOfQuota>().is_some() && waits < MOST_WAITS_FOR_QUOTA => {
                 waits += 1;
                 logs::event("chef_de_partie.waiting_for_quota", json!({ "conversation": conversation.key(), "waits": waits, "said": format!("{error:#}") }));
-                if !accounts::moved_off_the_spent_account() {
+                if !accounts::moved_off_the_current_account() {
                     os_thread::sleep(Duration::from_secs(SECONDS_BETWEEN_TRIES_FOR_QUOTA));
                 }
+            }
+            Err(error) if error.downcast_ref::<LoggedOut>().is_some() && !moved_off_a_dead_login && accounts::moved_off_the_current_account() => {
+                moved_off_a_dead_login = true;
+                logs::event("chef_de_partie.moved_off_a_dead_login", json!({ "conversation": conversation.key(), "said": format!("{error:#}") }));
             }
             outcome => return outcome,
         }
